@@ -59,31 +59,22 @@ export async function reactToComment(commentId: string, reaction: CommentReactio
   })
 }
 
-export function subscribeToComments(episodeId: string, onChange: () => void) {
+// V2.5 uses resilient short polling so it works on a standard Worker without
+// requiring a Durable Object/WebSocket server. This can later be swapped to
+// WebSockets without changing CommentSheet.
+export function subscribeToComments(_episodeId: string, onChange: () => void) {
   if (!API_BASE) return () => undefined
 
-  const websocketBase = API_BASE.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:')
-  const token = getSession()?.token || ''
-  let socket: WebSocket | null = null
-  let retryTimer: number | null = null
-  let closed = false
+  let hidden = document.hidden
+  const onVisibility = () => { hidden = document.hidden }
+  document.addEventListener('visibilitychange', onVisibility)
 
-  const connect = () => {
-    if (closed) return
-    const url = `${websocketBase}/api/comments/live?episodeId=${encodeURIComponent(episodeId)}&token=${encodeURIComponent(token)}`
-    socket = new WebSocket(url)
-    socket.onmessage = () => onChange()
-    socket.onclose = () => {
-      if (!closed) retryTimer = window.setTimeout(connect, 1800)
-    }
-    socket.onerror = () => socket?.close()
-  }
-
-  connect()
+  const timer = window.setInterval(() => {
+    if (!hidden) onChange()
+  }, 5000)
 
   return () => {
-    closed = true
-    if (retryTimer !== null) window.clearTimeout(retryTimer)
-    socket?.close()
+    document.removeEventListener('visibilitychange', onVisibility)
+    window.clearInterval(timer)
   }
 }
