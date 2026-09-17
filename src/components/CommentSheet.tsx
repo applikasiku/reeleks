@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Heart, Send, X } from 'lucide-react'
 import {
   commentsApiConfigured,
@@ -163,7 +163,7 @@ export default function CommentSheet({
     applyLocalReaction(commentId, reaction)
   }
 
-  const renderComment = (comment: CommentItem, nested = false) => (
+  const renderComment = (comment: CommentItem, nested = false): ReactNode => (
     <div key={comment.id} className={nested ? 'comment-thread-reply' : 'comment-thread-root'}>
       <article className="comment-row">
         <div className="comment-avatar">{comment.name.slice(0, 1).toUpperCase()}</div>
