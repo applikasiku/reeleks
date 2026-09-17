@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import BottomNav, { type Tab } from './components/BottomNav'
+import CommentSheet from './components/CommentSheet'
 import FeedPage from './pages/FeedPage'
 import HomePage from './pages/HomePage'
 import DetailPage from './pages/DetailPage'
@@ -8,7 +9,7 @@ import MyListPage from './pages/MyListPage'
 import RewardPage from './pages/RewardPage'
 import SecureHlsPlayer from './components/SecureHlsPlayer'
 import { dramas as fallbackDramas } from './data/mock'
-import { getHomeDramas, getPlaybackUrl, hasRemoteApi } from './services/dramaApi'
+import { getHomeDramas, getPlaybackUrl, hasRemoteApi, preloadPlayback } from './services/dramaApi'
 import type { Drama, Episode } from './types'
 import {
   ArrowLeft,
@@ -23,6 +24,7 @@ import {
 import { getFavorites, toggleFavorite } from './lib/storage'
 
 type Screen = 'tabs' | 'detail' | 'player'
+type TransitionDirection = 'none' | 'up' | 'down'
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('home')
@@ -32,14 +34,18 @@ export default function App() {
   const [selectedEpisode, setSelectedEpisode] = useState<Episode>(fallbackDramas[0].episodes[0])
   const [playerMuted, setPlayerMuted] = useState(false)
   const [playerChromeVisible, setPlayerChromeVisible] = useState(false)
+  const [playerCommentsOpen, setPlayerCommentsOpen] = useState(false)
+  const [episodeTransition, setEpisodeTransition] = useState<TransitionDirection>('none')
   const [feedChromeVisible, setFeedChromeVisible] = useState(false)
   const [savedDramaIds, setSavedDramaIds] = useState<Set<string>>(() => new Set(getFavorites()))
   const [apiStatus, setApiStatus] = useState<'demo' | 'remote' | 'loading'>('loading')
   const playerStageRef = useRef<HTMLDivElement>(null)
   const playerChromeTimerRef = useRef<number | null>(null)
   const playerTapTimerRef = useRef<number | null>(null)
+  const playerTransitionTimerRef = useRef<number | null>(null)
   const playerLastTapRef = useRef(0)
   const playerPointerStartYRef = useRef(0)
+  const preloadedPlaybackRef = useRef(new Map<string, string>())
 
   useEffect(() => {
     let mounted = true
@@ -74,6 +80,13 @@ export default function App() {
     }
   }
 
+  const clearTransitionTimer = () => {
+    if (playerTransitionTimerRef.current !== null) {
+      window.clearTimeout(playerTransitionTimerRef.current)
+      playerTransitionTimerRef.current = null
+    }
+  }
+
   const hidePlayerChrome = () => {
     clearPlayerChromeTimer()
     setPlayerChromeVisible(false)
@@ -91,12 +104,25 @@ export default function App() {
   useEffect(() => {
     hidePlayerChrome()
     clearPlayerTapTimer()
+    setPlayerCommentsOpen(false)
     return () => {
       clearPlayerChromeTimer()
       clearPlayerTapTimer()
+      clearTransitionTimer()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, selectedEpisode.id])
+
+  useEffect(() => {
+    if (screen !== 'player' || currentEpisodeIndex < 0) return
+
+    const candidates = selectedDrama.episodes.slice(currentEpisodeIndex + 1, currentEpisodeIndex + 3)
+    candidates.forEach(episode => {
+      void preloadPlayback(episode).then(url => {
+        preloadedPlaybackRef.current.set(episode.id, url)
+      })
+    })
+  }, [screen, selectedDrama, currentEpisodeIndex])
 
   const requestAppFullscreen = async () => {
     try {
@@ -114,8 +140,26 @@ export default function App() {
     setScreen('detail')
   }
 
-  const resolveAndPlay = async (drama: Drama, episode: Episode) => {
-    const playbackUrl = await getPlaybackUrl(episode)
+  const startEpisodeTransition = (direction: TransitionDirection) => {
+    clearTransitionTimer()
+    setEpisodeTransition(direction)
+    if (direction !== 'none') {
+      playerTransitionTimerRef.current = window.setTimeout(() => {
+        setEpisodeTransition('none')
+        playerTransitionTimerRef.current = null
+      }, 360)
+    }
+  }
+
+  const resolveAndPlay = async (
+    drama: Drama,
+    episode: Episode,
+    direction: TransitionDirection = 'none'
+  ) => {
+    const cached = preloadedPlaybackRef.current.get(episode.id)
+    const playbackUrl = cached || await getPlaybackUrl(episode)
+
+    startEpisodeTransition(direction)
     setSelectedDrama(drama)
     setSelectedEpisode({ ...episode, hlsUrl: playbackUrl })
     setScreen('player')
@@ -135,12 +179,12 @@ export default function App() {
 
   const nextEpisode = () => {
     const next = selectedDrama.episodes[currentEpisodeIndex + 1]
-    if (next) void resolveAndPlay(selectedDrama, next)
+    if (next) void resolveAndPlay(selectedDrama, next, 'up')
   }
 
   const previousEpisode = () => {
     const previous = selectedDrama.episodes[currentEpisodeIndex - 1]
-    if (previous) void resolveAndPlay(selectedDrama, previous)
+    if (previous) void resolveAndPlay(selectedDrama, previous, 'down')
   }
 
   const toggleSaved = () => {
@@ -183,13 +227,27 @@ export default function App() {
     else video.pause()
   }
 
+  const openPlayerComments = () => {
+    clearPlayerChromeTimer()
+    setPlayerChromeVisible(false)
+    setPlayerCommentsOpen(true)
+  }
+
+  const closePlayerComments = () => {
+    setPlayerCommentsOpen(false)
+    hidePlayerChrome()
+  }
+
   const handlePlayerPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (playerCommentsOpen) return
     playerPointerStartYRef.current = event.clientY
   }
 
   const handlePlayerPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (playerCommentsOpen) return
+
     const target = event.target as HTMLElement
-    if (target.closest('button, a')) return
+    if (target.closest('button, a, input, .comment-layer')) return
 
     const deltaY = event.clientY - playerPointerStartYRef.current
     const swipeThreshold = 70
@@ -236,15 +294,17 @@ export default function App() {
     const saved = savedDramaIds.has(selectedDrama.id)
     const isLastEpisode = currentEpisodeIndex >= selectedDrama.episodes.length - 1
     const chromeClass = `watch-chrome ${playerChromeVisible ? 'chrome-visible' : 'chrome-hidden'}`
+    const transitionClass = episodeTransition === 'none' ? '' : `episode-transition-${episodeTransition}`
 
     return (
       <div
         ref={playerStageRef}
-        className="player-screen v2-player-stage clean-watch-stage"
+        className={`player-screen v2-player-stage clean-watch-stage ${transitionClass}`}
         onPointerDown={handlePlayerPointerDown}
         onPointerUp={handlePlayerPointerUp}
       >
         <SecureHlsPlayer
+          key={selectedEpisode.id}
           src={selectedEpisode.hlsUrl}
           poster={selectedEpisode.poster}
           dramaId={selectedDrama.id}
@@ -275,7 +335,7 @@ export default function App() {
             <Heart fill={saved ? 'currentColor' : 'none'} />
             <span>{saved ? 'Favorit' : 'Suka'}</span>
           </button>
-          <button><MessageCircle /><span>Komentar</span></button>
+          <button onClick={openPlayerComments}><MessageCircle /><span>Komentar</span></button>
           <button onClick={() => void shareCurrent()}><Share2 /><span>Bagikan</span></button>
           <button onClick={toggleSaved} className={saved ? 'active-action saved' : ''}>
             <Bookmark fill={saved ? 'currentColor' : 'none'} />
@@ -292,12 +352,19 @@ export default function App() {
             <small>{selectedEpisode.title}</small>
           </div>
           <div className="player-next-row">
-            <span className="api-status-dot">{apiStatus === 'remote' ? 'API LIVE' : 'DEMO V2.3'}</span>
+            <span className="api-status-dot">{apiStatus === 'remote' ? 'API LIVE' : 'DEMO V2.4'}</span>
             <button disabled={isLastEpisode} onClick={nextEpisode}>
               {isLastEpisode ? 'Episode terakhir' : `Episode ${currentEpisodeIndex + 2} ›`}
             </button>
           </div>
         </div>
+
+        <CommentSheet
+          open={playerCommentsOpen}
+          episodeId={selectedEpisode.id}
+          dramaTitle={selectedDrama.title}
+          onClose={closePlayerComments}
+        />
       </div>
     )
   }
