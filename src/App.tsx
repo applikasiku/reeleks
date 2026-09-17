@@ -32,6 +32,7 @@ export default function App() {
   const [selectedEpisode, setSelectedEpisode] = useState<Episode>(fallbackDramas[0].episodes[0])
   const [playerMuted, setPlayerMuted] = useState(false)
   const [playerChromeVisible, setPlayerChromeVisible] = useState(false)
+  const [feedChromeVisible, setFeedChromeVisible] = useState(false)
   const [savedDramaIds, setSavedDramaIds] = useState<Set<string>>(() => new Set(getFavorites()))
   const [apiStatus, setApiStatus] = useState<'demo' | 'remote' | 'loading'>('loading')
   const playerStageRef = useRef<HTMLDivElement>(null)
@@ -253,12 +254,14 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      {tab === 'for-you' && <FeedPage dramas={dramas} onOpenDrama={openDrama} />}
+      {tab === 'for-you' && (
+        <FeedPage dramas={dramas} onOpenDrama={openDrama} onChromeChange={setFeedChromeVisible} />
+      )}
       {tab === 'home' && <HomePage dramas={dramas} onOpen={openDrama} onPlay={playDrama} />}
       {tab === 'reward' && <RewardPage />}
       {tab === 'list' && <MyListPage onOpen={openDrama} />}
       {tab === 'profile' && <ProfilePage />}
-      <BottomNav active={tab} onChange={setTab} />
+      {(tab !== 'for-you' || feedChromeVisible) && <BottomNav active={tab} onChange={setTab} />}
     </div>
   )
 }
