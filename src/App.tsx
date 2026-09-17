@@ -4,10 +4,12 @@ import FeedPage from './pages/FeedPage'
 import HomePage from './pages/HomePage'
 import DetailPage from './pages/DetailPage'
 import ProfilePage from './pages/ProfilePage'
+import MyListPage from './pages/MyListPage'
+import RewardPage from './pages/RewardPage'
 import SecureHlsPlayer from './components/SecureHlsPlayer'
 import { dramas } from './data/mock'
 import type { Drama, Episode } from './types'
-import { ArrowLeft, Heart, Bookmark } from 'lucide-react'
+import { ArrowLeft, Bookmark, Heart } from 'lucide-react'
 import { toggleFavorite } from './lib/storage'
 
 type Screen = 'tabs' | 'detail' | 'player'
@@ -57,7 +59,7 @@ export default function App() {
   if (screen === 'player') {
     return (
       <div className="player-screen">
-        <button className="player-back" onClick={() => setScreen('detail')}><ArrowLeft /></button>
+        <button className="player-back" onClick={() => setScreen('detail')} aria-label="Kembali"><ArrowLeft /></button>
         <SecureHlsPlayer
           src={selectedEpisode.hlsUrl}
           poster={selectedEpisode.poster}
@@ -65,18 +67,21 @@ export default function App() {
           episodeId={selectedEpisode.id}
           protectedContent
           watermark={`REELEKS • ${selectedDrama.id.slice(0, 8)} • ${selectedEpisode.number}`}
+          autoPlay
+          showControls
         />
         <div className="player-overlay">
+          <span className="section-kicker">EPISODE {selectedEpisode.number}</span>
           <h2>{selectedDrama.title}</h2>
-          <p>Ep. {selectedEpisode.number} / {selectedDrama.episodes.length}</p>
+          <p>{selectedEpisode.title} · {selectedEpisode.duration}</p>
           <div className="player-buttons">
             <button onClick={() => toggleFavorite(selectedDrama.id)}><Heart /> Favorit</button>
             <button><Bookmark /> Simpan</button>
           </div>
           <button className="primary wide" disabled={currentEpisodeIndex >= selectedDrama.episodes.length - 1} onClick={nextEpisode}>
-            Episode Berikutnya
+            {currentEpisodeIndex >= selectedDrama.episodes.length - 1 ? 'Episode Terakhir' : `Lanjut Episode ${currentEpisodeIndex + 2}`}
           </button>
-          <p className="protected-copy">Screenshot tidak dapat diblokir penuh di PWA. Gunakan wrapper Android untuk FLAG_SECURE.</p>
+          <p className="protected-copy">Konten protected: tanpa tombol download. Perlindungan screenshot penuh membutuhkan wrapper Android FLAG_SECURE.</p>
         </div>
       </div>
     )
@@ -86,16 +91,8 @@ export default function App() {
     <div className="app-shell">
       {tab === 'for-you' && <FeedPage dramas={dramas} onOpenDrama={openDrama} />}
       {tab === 'home' && <HomePage dramas={dramas} onOpen={openDrama} onPlay={playDrama} />}
-      {tab === 'reward' && (
-        <main className="page centered">
-          <div className="reward-card">
-            <div className="gift-emoji">🎁</div>
-            <h1>Hadiah</h1>
-            <p>Versi 1: halaman placeholder untuk reward, koin, atau bonus nonton.</p>
-          </div>
-        </main>
-      )}
-      {tab === 'list' && <ProfilePage />}
+      {tab === 'reward' && <RewardPage />}
+      {tab === 'list' && <MyListPage onOpen={openDrama} />}
       {tab === 'profile' && <ProfilePage />}
       <BottomNav active={tab} onChange={setTab} />
     </div>
