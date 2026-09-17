@@ -31,9 +31,12 @@ export default function App() {
   const [selectedDrama, setSelectedDrama] = useState<Drama>(fallbackDramas[0])
   const [selectedEpisode, setSelectedEpisode] = useState<Episode>(fallbackDramas[0].episodes[0])
   const [playerMuted, setPlayerMuted] = useState(false)
+  const [playerChromeVisible, setPlayerChromeVisible] = useState(false)
   const [savedDramaIds, setSavedDramaIds] = useState<Set<string>>(() => new Set(getFavorites()))
   const [apiStatus, setApiStatus] = useState<'demo' | 'remote' | 'loading'>('loading')
   const playerStageRef = useRef<HTMLDivElement>(null)
+  const playerChromeTimerRef = useRef<number | null>(null)
+  const playerLastTapRef = useRef(0)
 
   useEffect(() => {
     let mounted = true
@@ -53,6 +56,33 @@ export default function App() {
     () => selectedDrama.episodes.findIndex(e => e.id === selectedEpisode.id),
     [selectedDrama, selectedEpisode]
   )
+
+  const clearPlayerChromeTimer = () => {
+    if (playerChromeTimerRef.current !== null) {
+      window.clearTimeout(playerChromeTimerRef.current)
+      playerChromeTimerRef.current = null
+    }
+  }
+
+  const hidePlayerChrome = () => {
+    clearPlayerChromeTimer()
+    setPlayerChromeVisible(false)
+  }
+
+  const showPlayerChromeTemporarily = () => {
+    clearPlayerChromeTimer()
+    setPlayerChromeVisible(true)
+    playerChromeTimerRef.current = window.setTimeout(() => {
+      setPlayerChromeVisible(false)
+      playerChromeTimerRef.current = null
+    }, 3500)
+  }
+
+  useEffect(() => {
+    hidePlayerChrome()
+    return clearPlayerChromeTimer
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, selectedEpisode.id])
 
   const requestAppFullscreen = async () => {
     try {
@@ -127,21 +157,21 @@ export default function App() {
     }
   }
 
-  const handlePlayerStageClick = async (event: React.MouseEvent<HTMLDivElement>) => {
+  const handlePlayerPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
     if (target.closest('button, a')) return
 
-    const stage = playerStageRef.current
-    const video = stage?.querySelector('video') as HTMLVideoElement | null
-    if (!stage || !video) return
+    const now = Date.now()
+    const delta = now - playerLastTapRef.current
 
-    if (!document.fullscreenElement) {
-      await requestStageFullscreen()
+    if (delta > 0 && delta < 340) {
+      playerLastTapRef.current = 0
+      if (playerChromeVisible) hidePlayerChrome()
+      else showPlayerChromeTemporarily()
       return
     }
 
-    if (video.paused) void video.play().catch(() => undefined)
-    else video.pause()
+    playerLastTapRef.current = now
   }
 
   if (screen === 'detail') {
@@ -156,9 +186,14 @@ export default function App() {
   if (screen === 'player') {
     const saved = savedDramaIds.has(selectedDrama.id)
     const isLastEpisode = currentEpisodeIndex >= selectedDrama.episodes.length - 1
+    const chromeClass = `watch-chrome ${playerChromeVisible ? 'chrome-visible' : 'chrome-hidden'}`
 
     return (
-      <div ref={playerStageRef} className="player-screen v2-player-stage" onClick={handlePlayerStageClick}>
+      <div
+        ref={playerStageRef}
+        className="player-screen v2-player-stage clean-watch-stage"
+        onPointerUp={handlePlayerPointerUp}
+      >
         <SecureHlsPlayer
           src={selectedEpisode.hlsUrl}
           poster={selectedEpisode.poster}
@@ -169,13 +204,14 @@ export default function App() {
           autoPlay
           muted={playerMuted}
           showControls={false}
-          showProgress
+          showProgress={playerChromeVisible}
+          showSecurityOverlay={playerChromeVisible}
           shouldLoad
         />
 
-        <div className="feed-gradient" />
+        <div className={`feed-gradient ${chromeClass}`} />
 
-        <div className="player-topbar-v2">
+        <div className={`player-topbar-v2 ${chromeClass}`}>
           <button onClick={() => setScreen('detail')} aria-label="Kembali"><ArrowLeft /></button>
           <span><b>R</b>EELEKS</span>
           <button onClick={() => setPlayerMuted(value => !value)} aria-label="Suara">
@@ -183,7 +219,7 @@ export default function App() {
           </button>
         </div>
 
-        <aside className="player-actions-v2">
+        <aside className={`player-actions-v2 ${chromeClass}`}>
           <button onClick={toggleSaved} className={saved ? 'active-action' : ''}>
             <Heart fill={saved ? 'currentColor' : 'none'} />
             <span>{saved ? 'Favorit' : 'Suka'}</span>
@@ -197,15 +233,15 @@ export default function App() {
           <button onClick={() => void requestStageFullscreen()}><Maximize2 /><span>Fullscreen</span></button>
         </aside>
 
-        <div className="player-meta-v2">
-          <div className="player-copy-v21 v21-auto-hide-meta">
+        <div className={`player-meta-v2 ${chromeClass}`}>
+          <div className="player-copy-v21">
             <strong>@REELEKS ✓</strong>
             <h2>{selectedDrama.title}</h2>
             <p>Episode {selectedEpisode.number} / {selectedDrama.episodes.length} · {selectedEpisode.duration}</p>
             <small>{selectedEpisode.title}</small>
           </div>
           <div className="player-next-row">
-            <span className="api-status-dot">{apiStatus === 'remote' ? 'API LIVE' : 'DEMO V2.1'}</span>
+            <span className="api-status-dot">{apiStatus === 'remote' ? 'API LIVE' : 'DEMO V2.2'}</span>
             <button disabled={isLastEpisode} onClick={nextEpisode}>
               {isLastEpisode ? 'Episode terakhir' : `Episode ${currentEpisodeIndex + 2} ›`}
             </button>
