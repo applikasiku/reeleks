@@ -180,6 +180,16 @@ async function jikanRequest(search?: string) {
   return (body.data || []).map(mapJikan)
 }
 
+async function tvMazeHome() {
+  const response = await fetch('https://api.tvmaze.com/shows?page=0')
+  if (!response.ok) throw new Error(`TVmaze ${response.status}`)
+  const body = await response.json() as TvMazeShow[]
+  return body
+    .filter(show => Boolean(show?.id && show?.name))
+    .slice(0, 12)
+    .map(mapTvMaze)
+}
+
 async function tvMazeSearch(query: string) {
   const response = await fetch(`https://api.tvmaze.com/search/shows?q=${encodeURIComponent(query)}`)
   if (!response.ok) throw new Error(`TVmaze ${response.status}`)
@@ -204,14 +214,17 @@ export const publicProviderStatuses: ProviderStatus[] = [
 ]
 
 export async function getPublicHomeCatalog(): Promise<{ dramas: Drama[]; sections: CatalogSection[]; providers: ProviderStatus[] }> {
-  const [aniResult, jikanResult] = await Promise.allSettled([
+  const [tvResult, aniResult, jikanResult] = await Promise.allSettled([
+    tvMazeHome(),
     aniListRequest(),
     jikanRequest()
   ])
+  const tvmaze = tvResult.status === 'fulfilled' ? tvResult.value : []
   const anilist = aniResult.status === 'fulfilled' ? aniResult.value : []
   const jikan = jikanResult.status === 'fulfilled' ? jikanResult.value : []
-  const dramas = dedupe([...anilist, ...jikan])
+  const dramas = dedupe([...tvmaze, ...anilist, ...jikan])
   const sections: CatalogSection[] = [
+    { id: 'tvmaze', title: 'Serial TV Pilihan', provider: 'TVmaze', dramas: tvmaze },
     { id: 'anilist', title: 'Anime Trending', provider: 'AniList', dramas: anilist },
     { id: 'jikan', title: 'Anime Populer', provider: 'Jikan', dramas: jikan }
   ].filter(section => section.dramas.length > 0)
