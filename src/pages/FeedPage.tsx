@@ -169,31 +169,17 @@ export default function FeedPage({
             <div className="feed-topbar v2-feed-topbar">
               <span className="feed-brand"><b>R</b>EELEKS</span>
               <div className="feed-mode-switch" role="tablist" aria-label="Mode feed">
-                <button
-                  className={mode === 'episode' ? 'active' : ''}
-                  onClick={() => setMode('episode')}
-                >
-                  Episode
-                </button>
-                <button
-                  className={mode === 'title' ? 'active' : ''}
-                  onClick={() => setMode('title')}
-                >
-                  Judul
-                </button>
+                <button className={mode === 'episode' ? 'active' : ''} onClick={() => setMode('episode')}>Episode</button>
+                <button className={mode === 'title' ? 'active' : ''} onClick={() => setMode('title')}>Judul</button>
               </div>
-              <button
-                className="feed-sound"
-                onClick={() => setMuted(value => !value)}
-                aria-label={muted ? 'Aktifkan suara' : 'Matikan suara'}
-              >
+              <button className="feed-sound" onClick={() => setMuted(value => !value)} aria-label={muted ? 'Aktifkan suara' : 'Matikan suara'}>
                 {muted ? <VolumeX /> : <Volume2 />}
               </button>
             </div>
 
             <div className="feed-gradient" />
 
-            <div className="feed-meta v2-feed-meta">
+            <div className={`feed-meta v2-feed-meta ${active ? 'v21-auto-hide-meta' : ''}`}>
               <strong>@REELEKS <span className="verified"><Check size={12} /></span></strong>
               <h2>{drama.title}</h2>
               <p className="feed-episode">
@@ -202,33 +188,17 @@ export default function FeedPage({
                   : `${drama.episodes.length} episode · ⭐ ${drama.rating}`}
               </p>
               <p className="feed-caption">{drama.synopsis}</p>
-              <button className="text-link" onClick={() => onOpenDrama(drama)}>
-                Detail & semua episode ›
-              </button>
+              <button className="text-link" onClick={() => onOpenDrama(drama)}>Detail & semua episode ›</button>
             </div>
 
             <aside className="feed-actions v2-feed-actions">
-              <button
-                className={liked ? 'active-action' : ''}
-                onClick={() => toggleLike(episode.id)}
-                aria-label="Suka"
-              >
+              <button className={liked ? 'active-action' : ''} onClick={() => toggleLike(episode.id)} aria-label="Suka">
                 <Heart fill={liked ? 'currentColor' : 'none'} />
                 <span>{liked ? 'Disukai' : '128.7K'}</span>
               </button>
-              <button aria-label="Komentar">
-                <MessageCircle />
-                <span>3.2K</span>
-              </button>
-              <button onClick={() => void shareDrama(drama)} aria-label="Bagikan">
-                <Share2 />
-                <span>Bagikan</span>
-              </button>
-              <button
-                className={saved ? 'active-action saved' : ''}
-                onClick={() => toggleSave(drama.id)}
-                aria-label="Simpan"
-              >
+              <button aria-label="Komentar"><MessageCircle /><span>3.2K</span></button>
+              <button onClick={() => void shareDrama(drama)} aria-label="Bagikan"><Share2 /><span>Bagikan</span></button>
+              <button className={saved ? 'active-action saved' : ''} onClick={() => toggleSave(drama.id)} aria-label="Simpan">
                 <Bookmark fill={saved ? 'currentColor' : 'none'} />
                 <span>{saved ? 'Tersimpan' : 'Simpan'}</span>
               </button>
@@ -246,8 +216,6 @@ export default function FeedPage({
               </button>
               <button aria-label="Lainnya"><MoreHorizontal /></button>
             </aside>
-
-            <div className="tap-fullscreen-hint">Ketuk video → fullscreen</div>
           </section>
         )
       })}
