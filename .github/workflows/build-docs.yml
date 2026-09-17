@@ -11,7 +11,7 @@ on:
       - 'package-lock.json'
       - 'vite.config.ts'
       - 'tsconfig*.json'
-      - 'index.html'
+      - 'app-index.html'
       - '.github/workflows/build-docs.yml'
   workflow_dispatch:
 
@@ -37,6 +37,9 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Prepare Vite application entry
+        run: cp app-index.html index.html
+
       - name: Build for GitHub Pages docs path
         env:
           VITE_BASE_PATH: /reeleks/docs/
@@ -48,6 +51,9 @@ jobs:
           mkdir -p docs
           cp -R dist/. docs/
           touch docs/.nojekyll
+
+      - name: Restore repository root redirect
+        run: git checkout -- index.html
 
       - name: Commit generated docs
         run: |
