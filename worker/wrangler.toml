@@ -1,9 +1,11 @@
-name = "reeleks-v1-api"
+name = "reeleks-v2-api"
 main = "worker.ts"
 compatibility_date = "2026-09-17"
 
 [vars]
 PROVIDER_BASE_URL = "https://your-licensed-video-provider.example.com"
+ALLOWED_ORIGIN = "https://applikasiku.github.io"
 
-# Set secret separately:
+# Production secrets:
 # npx wrangler secret put PLAYBACK_SECRET
+# npx wrangler secret put PROVIDER_API_KEY
