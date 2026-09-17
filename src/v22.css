@@ -1,0 +1,74 @@
+.clean-watch-stage {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.watch-chrome {
+  transition:
+    opacity .22s ease,
+    visibility .22s ease,
+    transform .22s ease;
+}
+
+.watch-chrome.chrome-hidden {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+.watch-chrome.chrome-visible {
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+.player-topbar-v2.chrome-hidden,
+.feed-topbar.chrome-hidden {
+  transform: translateY(-8px);
+}
+
+.player-actions-v2.chrome-hidden,
+.feed-actions.chrome-hidden {
+  transform: translateX(8px);
+}
+
+.player-meta-v2.chrome-hidden,
+.feed-meta.chrome-hidden {
+  transform: translateY(10px);
+}
+
+.clean-watch-stage .feed-gradient.chrome-hidden {
+  opacity: 0 !important;
+}
+
+.clean-watch-stage .security-badge,
+.clean-watch-stage .dynamic-watermark,
+.clean-watch-stage .video-progress {
+  transition: opacity .2s ease;
+}
+
+.clean-watch-stage .video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* In viewing mode REELEKS deliberately keeps the screen completely clean.
+   Double-tap reveals all interaction chrome for 3.5 seconds. */
+.v2-player-stage,
+.tiktok-stage {
+  background: #000;
+}
+
+.v2-player-stage:fullscreen,
+.tiktok-stage:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .clean-watch-stage {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
