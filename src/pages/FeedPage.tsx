@@ -10,6 +10,7 @@ import {
   Volume2,
   VolumeX
 } from 'lucide-react'
+import CommentSheet from '../components/CommentSheet'
 import SecureHlsPlayer from '../components/SecureHlsPlayer'
 import { getFavorites, toggleFavorite } from '../lib/storage'
 import type { Drama, Episode } from '../types'
@@ -38,6 +39,7 @@ export default function FeedPage({
   const [activeIndex, setActiveIndex] = useState(0)
   const [muted, setMuted] = useState(true)
   const [chromeVisible, setChromeVisible] = useState(false)
+  const [commentEntry, setCommentEntry] = useState<FeedEntry | null>(null)
   const [likedIds, setLikedIds] = useState<Set<string>>(() => getStoredSet('reeleks.likes.v2'))
   const [savedDramaIds, setSavedDramaIds] = useState<Set<string>>(() => new Set(getFavorites()))
   const containerRef = useRef<HTMLDivElement>(null)
@@ -103,6 +105,7 @@ export default function FeedPage({
 
   useEffect(() => {
     setActiveIndex(0)
+    setCommentEntry(null)
     hideChrome()
     clearTapTimer()
     containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
@@ -111,6 +114,7 @@ export default function FeedPage({
   }, [mode])
 
   useEffect(() => {
+    setCommentEntry(null)
     hideChrome()
     clearTapTimer()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -192,13 +196,27 @@ export default function FeedPage({
     target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
+  const openComments = (drama: Drama, episode: Episode) => {
+    clearChromeTimer()
+    setChrome(false)
+    setCommentEntry({ drama, episode })
+  }
+
+  const closeComments = () => {
+    setCommentEntry(null)
+    hideChrome()
+  }
+
   const handleStagePointerDown = (event: React.PointerEvent<HTMLElement>) => {
+    if (commentEntry) return
     pointerStartYRef.current = event.clientY
   }
 
   const handleStagePointerUp = (event: React.PointerEvent<HTMLElement>) => {
+    if (commentEntry) return
+
     const target = event.target as HTMLElement
-    if (target.closest('button, a, input')) return
+    if (target.closest('button, a, input, .comment-layer')) return
 
     const moved = Math.abs(event.clientY - pointerStartYRef.current)
     if (moved > 18) {
@@ -237,10 +255,11 @@ export default function FeedPage({
         const saved = savedDramaIds.has(drama.id)
         const showChrome = active && chromeVisible
         const chromeClass = `watch-chrome ${showChrome ? 'chrome-visible' : 'chrome-hidden'}`
+        const commentsOpen = commentEntry?.episode.id === episode.id
 
         return (
           <section
-            className="feed-item tiktok-stage clean-watch-stage"
+            className={`feed-item tiktok-stage clean-watch-stage ${active ? 'feed-active' : ''}`}
             key={`${mode}-${episode.id}`}
             data-feed-index={index}
             onPointerDown={handleStagePointerDown}
@@ -295,7 +314,7 @@ export default function FeedPage({
                 <Heart fill={liked ? 'currentColor' : 'none'} />
                 <span>{liked ? 'Disukai' : '128.7K'}</span>
               </button>
-              <button aria-label="Komentar"><MessageCircle /><span>3.2K</span></button>
+              <button onClick={() => openComments(drama, episode)} aria-label="Komentar"><MessageCircle /><span>Komentar</span></button>
               <button onClick={() => void shareDrama(drama)} aria-label="Bagikan"><Share2 /><span>Bagikan</span></button>
               <button className={saved ? 'active-action saved' : ''} onClick={() => toggleSave(drama.id)} aria-label="Simpan">
                 <Bookmark fill={saved ? 'currentColor' : 'none'} />
@@ -315,6 +334,13 @@ export default function FeedPage({
               </button>
               <button aria-label="Lainnya"><MoreHorizontal /></button>
             </aside>
+
+            <CommentSheet
+              open={commentsOpen}
+              episodeId={episode.id}
+              dramaTitle={drama.title}
+              onClose={closeComments}
+            />
           </section>
         )
       })}
