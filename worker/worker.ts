@@ -2,6 +2,11 @@ export interface Env {
   PLAYBACK_SECRET: string
   PROVIDER_BASE_URL: string
   PROVIDER_API_KEY?: string
+  PROVIDER_API_PREFIX?: string
+  PROVIDER_AUTH_MODE?: 'bearer' | 'x-api-key' | 'header' | 'query' | 'none'
+  PROVIDER_API_KEY_HEADER?: string
+  PROVIDER_API_KEY_QUERY?: string
+  PROVIDER_PLAYBACK_PATH?: string
   ALLOWED_ORIGIN?: string
 }
 
@@ -13,7 +18,7 @@ function corsHeaders(request: Request, env: Env) {
   return {
     'Access-Control-Allow-Origin': resolvedOrigin,
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Vary': 'Origin'
   }
 }
@@ -54,20 +59,55 @@ async function sign(secret: string, payload: string) {
   return base64Url(signature)
 }
 
-async function providerFetch(env: Env, path: string) {
+function providerUrl(env: Env, path: string) {
   const base = env.PROVIDER_BASE_URL.replace(/\/$/, '')
-  const headers = new Headers({ Accept: 'application/json' })
+  const prefix = (env.PROVIDER_API_PREFIX || '').trim()
+  const normalizedPrefix = prefix && !prefix.startsWith('/') ? `/${prefix}` : prefix
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  const url = new URL(`${base}${normalizedPrefix}${normalizedPath}`)
 
-  if (env.PROVIDER_API_KEY) {
-    headers.set('Authorization', `Bearer ${env.PROVIDER_API_KEY}`)
+  const mode = env.PROVIDER_AUTH_MODE || 'bearer'
+  if (mode === 'query' && env.PROVIDER_API_KEY) {
+    url.searchParams.set(env.PROVIDER_API_KEY_QUERY || 'api_key', env.PROVIDER_API_KEY)
   }
 
-  const response = await fetch(`${base}${path}`, { headers })
+  return url
+}
+
+function providerHeaders(env: Env) {
+  const headers = new Headers({ Accept: 'application/json' })
+  const key = env.PROVIDER_API_KEY
+  const mode = env.PROVIDER_AUTH_MODE || 'bearer'
+
+  if (!key || mode === 'none' || mode === 'query') return headers
+
+  if (mode === 'bearer') {
+    headers.set('Authorization', `Bearer ${key}`)
+  } else if (mode === 'x-api-key') {
+    headers.set('X-API-Key', key)
+  } else if (mode === 'header') {
+    headers.set(env.PROVIDER_API_KEY_HEADER || 'X-API-Key', key)
+  }
+
+  return headers
+}
+
+async function providerFetch(env: Env, path: string) {
+  const response = await fetch(providerUrl(env, path), {
+    headers: providerHeaders(env)
+  })
+
   if (!response.ok) {
-    throw new Error(`Provider error ${response.status}`)
+    const detail = await response.text().catch(() => '')
+    throw new Error(`Provider error ${response.status}${detail ? `: ${detail.slice(0, 160)}` : ''}`)
   }
 
   return response.json()
+}
+
+function playbackPath(env: Env, episodeId: string) {
+  const template = env.PROVIDER_PLAYBACK_PATH || '/playback/{episodeId}/master.m3u8'
+  return template.replace('{episodeId}', encodeURIComponent(episodeId))
 }
 
 export default {
@@ -86,8 +126,23 @@ export default {
         return json(request, env, {
           ok: true,
           app: 'REELEKS',
-          version: 2,
+          version: '2.5',
           timestamp: new Date().toISOString()
+        })
+      }
+
+      if (url.pathname === '/api/provider/status') {
+        const providerHost = (() => {
+          try { return new URL(env.PROVIDER_BASE_URL).host } catch { return null }
+        })()
+
+        return json(request, env, {
+          ok: Boolean(providerHost),
+          providerHost,
+          apiPrefix: env.PROVIDER_API_PREFIX || '',
+          authMode: env.PROVIDER_AUTH_MODE || 'bearer',
+          apiKeyConfigured: Boolean(env.PROVIDER_API_KEY),
+          playbackTemplateConfigured: Boolean(env.PROVIDER_PLAYBACK_PATH)
         })
       }
 
@@ -131,23 +186,22 @@ export default {
         const payload = `${episodeId}.${exp}`
         const sig = await sign(env.PLAYBACK_SECRET, payload)
 
-        // Adapter convention for V2:
-        // your licensed provider should expose /playback/:episodeId/master.m3u8.
-        // If its schema differs, change only this adapter without touching the frontend.
-        const base = env.PROVIDER_BASE_URL.replace(/\/$/, '')
-        const playbackUrl = `${base}/playback/${encodeURIComponent(episodeId)}/master.m3u8?exp=${exp}&sig=${sig}`
+        const upstream = providerUrl(env, playbackPath(env, episodeId))
+        upstream.searchParams.set('exp', String(exp))
+        upstream.searchParams.set('sig', sig)
 
         return json(request, env, {
-          playbackUrl,
+          playbackUrl: upstream.toString(),
           expiresAt: exp
         })
       }
 
       return json(request, env, {
         ok: true,
-        app: 'REELEKS API Gateway V2',
+        app: 'REELEKS API Gateway V2.5',
         routes: [
           '/api/health',
+          '/api/provider/status',
           '/api/home',
           '/api/search?q=',
           '/api/drama/:id',
