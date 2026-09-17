@@ -65,7 +65,9 @@ export default function ProfilePage() {
   const [session, setSession] = useState<Session | null>(() => getSession())
   const [status, setStatus] = useState('')
   const [syncing, setSyncing] = useState(false)
-  const [notificationsEnabled, setNotificationsEnabled] = useState(Notification.permission === 'granted')
+  const [notificationsEnabled, setNotificationsEnabled] = useState(
+    () => typeof Notification !== 'undefined' && Notification.permission === 'granted'
+  )
   const googleButtonRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -212,7 +214,7 @@ export default function ProfilePage() {
       )}
 
       {status && <p className="profile-status" role="status">{status}</p>}
-      <p className="app-version">REELEKS V2.5 · PWA Secure Streaming</p>
+      <p className="app-version">REELEKS V2.6 · Multi-Provider Streaming</p>
     </main>
   )
 }
