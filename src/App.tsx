@@ -54,6 +54,16 @@ export default function App() {
     [selectedDrama, selectedEpisode]
   )
 
+  const requestAppFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen()
+      }
+    } catch {
+      // Some mobile browsers do not allow page fullscreen; the player remains edge-to-edge.
+    }
+  }
+
   const openDrama = (drama: Drama) => {
     setSelectedDrama(drama)
     setSelectedEpisode(drama.episodes[0])
@@ -69,10 +79,13 @@ export default function App() {
 
   const playDrama = (drama: Drama) => {
     const firstEpisode = drama.episodes[0]
-    if (firstEpisode) void resolveAndPlay(drama, firstEpisode)
+    if (!firstEpisode) return
+    void requestAppFullscreen()
+    void resolveAndPlay(drama, firstEpisode)
   }
 
   const playEpisode = (episode: Episode) => {
+    void requestAppFullscreen()
     void resolveAndPlay(selectedDrama, episode)
   }
 
@@ -145,11 +158,7 @@ export default function App() {
     const isLastEpisode = currentEpisodeIndex >= selectedDrama.episodes.length - 1
 
     return (
-      <div
-        ref={playerStageRef}
-        className="player-screen v2-player-stage"
-        onClick={handlePlayerStageClick}
-      >
+      <div ref={playerStageRef} className="player-screen v2-player-stage" onClick={handlePlayerStageClick}>
         <SecureHlsPlayer
           src={selectedEpisode.hlsUrl}
           poster={selectedEpisode.poster}
@@ -179,38 +188,29 @@ export default function App() {
             <Heart fill={saved ? 'currentColor' : 'none'} />
             <span>{saved ? 'Favorit' : 'Suka'}</span>
           </button>
-          <button>
-            <MessageCircle />
-            <span>Komentar</span>
-          </button>
-          <button onClick={() => void shareCurrent()}>
-            <Share2 />
-            <span>Bagikan</span>
-          </button>
+          <button><MessageCircle /><span>Komentar</span></button>
+          <button onClick={() => void shareCurrent()}><Share2 /><span>Bagikan</span></button>
           <button onClick={toggleSaved} className={saved ? 'active-action saved' : ''}>
             <Bookmark fill={saved ? 'currentColor' : 'none'} />
             <span>Simpan</span>
           </button>
-          <button onClick={() => void requestStageFullscreen()}>
-            <Maximize2 />
-            <span>Fullscreen</span>
-          </button>
+          <button onClick={() => void requestStageFullscreen()}><Maximize2 /><span>Fullscreen</span></button>
         </aside>
 
         <div className="player-meta-v2">
-          <strong>@REELEKS ✓</strong>
-          <h2>{selectedDrama.title}</h2>
-          <p>Episode {selectedEpisode.number} / {selectedDrama.episodes.length} · {selectedEpisode.duration}</p>
-          <small>{selectedEpisode.title}</small>
+          <div className="player-copy-v21 v21-auto-hide-meta">
+            <strong>@REELEKS ✓</strong>
+            <h2>{selectedDrama.title}</h2>
+            <p>Episode {selectedEpisode.number} / {selectedDrama.episodes.length} · {selectedEpisode.duration}</p>
+            <small>{selectedEpisode.title}</small>
+          </div>
           <div className="player-next-row">
-            <span className="api-status-dot">{apiStatus === 'remote' ? 'API LIVE' : 'DEMO V2'}</span>
+            <span className="api-status-dot">{apiStatus === 'remote' ? 'API LIVE' : 'DEMO V2.1'}</span>
             <button disabled={isLastEpisode} onClick={nextEpisode}>
               {isLastEpisode ? 'Episode terakhir' : `Episode ${currentEpisodeIndex + 2} ›`}
             </button>
           </div>
         </div>
-
-        <div className="tap-fullscreen-hint player-hint">Ketuk video → fullscreen · ketuk lagi → pause/play</div>
       </div>
     )
   }
