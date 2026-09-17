@@ -13,6 +13,7 @@ type Props = {
   muted?: boolean
   showControls?: boolean
   showProgress?: boolean
+  showSecurityOverlay?: boolean
   loop?: boolean
   shouldLoad?: boolean
 }
@@ -28,6 +29,7 @@ export default function SecureHlsPlayer({
   muted = false,
   showControls = true,
   showProgress = false,
+  showSecurityOverlay = true,
   loop = false,
   shouldLoad = true
 }: Props) {
@@ -158,7 +160,7 @@ export default function SecureHlsPlayer({
         </div>
       )}
 
-      {protectedContent && (
+      {protectedContent && showSecurityOverlay && (
         <>
           <div className="security-badge">🔒 Dilindungi</div>
           <div className="dynamic-watermark">
