@@ -3,11 +3,15 @@ import { getSession } from './accountApi'
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || ''
 
-function urlBase64ToUint8Array(base64String: string) {
+function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
   const rawData = atob(base64)
-  return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)))
+  const bytes = new Uint8Array(rawData.length)
+  for (let index = 0; index < rawData.length; index += 1) {
+    bytes[index] = rawData.charCodeAt(index)
+  }
+  return bytes.buffer
 }
 
 export async function enableEpisodeNotifications() {
@@ -26,7 +30,7 @@ export async function enableEpisodeNotifications() {
   if (!subscription) {
     subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      applicationServerKey: urlBase64ToArrayBuffer(VAPID_PUBLIC_KEY)
     })
   }
 
