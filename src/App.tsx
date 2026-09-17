@@ -9,8 +9,14 @@ import MyListPage from './pages/MyListPage'
 import RewardPage from './pages/RewardPage'
 import SecureHlsPlayer from './components/SecureHlsPlayer'
 import { dramas as fallbackDramas } from './data/mock'
-import { getHomeDramas, getPlaybackUrl, hasRemoteApi, preloadPlayback } from './services/dramaApi'
-import type { Drama, Episode } from './types'
+import {
+  getDramaById,
+  getHomeCatalog,
+  getPlaybackUrl,
+  hasRemoteApi,
+  preloadPlayback
+} from './services/dramaApi'
+import type { CatalogSection, Drama, Episode, ProviderStatus } from './types'
 import {
   ArrowLeft,
   Bookmark,
@@ -30,6 +36,8 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('home')
   const [screen, setScreen] = useState<Screen>('tabs')
   const [dramas, setDramas] = useState<Drama[]>(fallbackDramas)
+  const [catalogSections, setCatalogSections] = useState<CatalogSection[]>([])
+  const [providers, setProviders] = useState<ProviderStatus[]>([])
   const [selectedDrama, setSelectedDrama] = useState<Drama>(fallbackDramas[0])
   const [selectedEpisode, setSelectedEpisode] = useState<Episode>(fallbackDramas[0].episodes[0])
   const [playerMuted, setPlayerMuted] = useState(false)
@@ -50,9 +58,11 @@ export default function App() {
   useEffect(() => {
     let mounted = true
 
-    void getHomeDramas().then(result => {
-      if (!mounted || result.length === 0) return
-      setDramas(result)
+    void getHomeCatalog().then(result => {
+      if (!mounted) return
+      if (result.dramas.length) setDramas(result.dramas)
+      setCatalogSections(result.sections)
+      setProviders(result.providers)
       setApiStatus(hasRemoteApi() ? 'remote' : 'demo')
     })
 
@@ -65,6 +75,13 @@ export default function App() {
     () => selectedDrama.episodes.findIndex(e => e.id === selectedEpisode.id),
     [selectedDrama, selectedEpisode]
   )
+
+  const playableFeedDramas = useMemo(() => {
+    const available = dramas.filter(drama =>
+      drama.playable !== false && drama.episodes.some(episode => episode.playable !== false)
+    )
+    return available.length ? available : fallbackDramas
+  }, [dramas])
 
   const clearPlayerChromeTimer = () => {
     if (playerChromeTimerRef.current !== null) {
@@ -116,10 +133,13 @@ export default function App() {
   useEffect(() => {
     if (screen !== 'player' || currentEpisodeIndex < 0) return
 
-    const candidates = selectedDrama.episodes.slice(currentEpisodeIndex + 1, currentEpisodeIndex + 3)
+    const candidates = selectedDrama.episodes
+      .slice(currentEpisodeIndex + 1, currentEpisodeIndex + 3)
+      .filter(episode => episode.playable !== false)
+
     candidates.forEach(episode => {
       void preloadPlayback(episode).then(url => {
-        preloadedPlaybackRef.current.set(episode.id, url)
+        if (url) preloadedPlaybackRef.current.set(episode.id, url)
       })
     })
   }, [screen, selectedDrama, currentEpisodeIndex])
@@ -135,9 +155,18 @@ export default function App() {
   }
 
   const openDrama = (drama: Drama) => {
+    const initialEpisode = drama.episodes[0] || fallbackDramas[0].episodes[0]
     setSelectedDrama(drama)
-    setSelectedEpisode(drama.episodes[0])
+    setSelectedEpisode(initialEpisode)
     setScreen('detail')
+
+    if (hasRemoteApi()) {
+      void getDramaById(drama.id).then(detail => {
+        if (!detail) return
+        setSelectedDrama(detail)
+        if (detail.episodes[0]) setSelectedEpisode(detail.episodes[0])
+      })
+    }
   }
 
   const startEpisodeTransition = (direction: TransitionDirection) => {
@@ -156,8 +185,18 @@ export default function App() {
     episode: Episode,
     direction: TransitionDirection = 'none'
   ) => {
+    if (drama.playable === false || episode.playable === false) {
+      openDrama(drama)
+      return
+    }
+
     const cached = preloadedPlaybackRef.current.get(episode.id)
     const playbackUrl = cached || await getPlaybackUrl(episode)
+
+    if (!playbackUrl) {
+      openDrama({ ...drama, playable: false })
+      return
+    }
 
     startEpisodeTransition(direction)
     setSelectedDrama(drama)
@@ -166,25 +205,29 @@ export default function App() {
   }
 
   const playDrama = (drama: Drama) => {
-    const firstEpisode = drama.episodes[0]
-    if (!firstEpisode) return
+    const firstEpisode = drama.episodes.find(episode => episode.playable !== false) || drama.episodes[0]
+    if (!firstEpisode || drama.playable === false || firstEpisode.playable === false) {
+      openDrama(drama)
+      return
+    }
     void requestAppFullscreen()
     void resolveAndPlay(drama, firstEpisode)
   }
 
   const playEpisode = (episode: Episode) => {
+    if (selectedDrama.playable === false || episode.playable === false) return
     void requestAppFullscreen()
     void resolveAndPlay(selectedDrama, episode)
   }
 
   const nextEpisode = () => {
     const next = selectedDrama.episodes[currentEpisodeIndex + 1]
-    if (next) void resolveAndPlay(selectedDrama, next, 'up')
+    if (next?.playable !== false) void resolveAndPlay(selectedDrama, next, 'up')
   }
 
   const previousEpisode = () => {
     const previous = selectedDrama.episodes[currentEpisodeIndex - 1]
-    if (previous) void resolveAndPlay(selectedDrama, previous, 'down')
+    if (previous?.playable !== false) void resolveAndPlay(selectedDrama, previous, 'down')
   }
 
   const toggleSaved = () => {
@@ -348,11 +391,11 @@ export default function App() {
           <div className="player-copy-v21">
             <strong>@REELEKS ✓</strong>
             <h2>{selectedDrama.title}</h2>
-            <p>Episode {selectedEpisode.number} / {selectedDrama.episodes.length} · {selectedEpisode.duration}</p>
+            <p>Episode {selectedEpisode.number} / {selectedDrama.episodeCount || selectedDrama.episodes.length} · {selectedEpisode.duration}</p>
             <small>{selectedEpisode.title}</small>
           </div>
           <div className="player-next-row">
-            <span className="api-status-dot">{apiStatus === 'remote' ? 'API LIVE' : 'DEMO V2.4'}</span>
+            <span className="api-status-dot">{apiStatus === 'remote' ? 'MULTI API' : 'DEMO V2.6'}</span>
             <button disabled={isLastEpisode} onClick={nextEpisode}>
               {isLastEpisode ? 'Episode terakhir' : `Episode ${currentEpisodeIndex + 2} ›`}
             </button>
@@ -372,9 +415,17 @@ export default function App() {
   return (
     <div className="app-shell">
       {tab === 'for-you' && (
-        <FeedPage dramas={dramas} onOpenDrama={openDrama} onChromeChange={setFeedChromeVisible} />
+        <FeedPage dramas={playableFeedDramas} onOpenDrama={openDrama} onChromeChange={setFeedChromeVisible} />
       )}
-      {tab === 'home' && <HomePage dramas={dramas} onOpen={openDrama} onPlay={playDrama} />}
+      {tab === 'home' && (
+        <HomePage
+          dramas={dramas}
+          sections={catalogSections}
+          providers={providers}
+          onOpen={openDrama}
+          onPlay={playDrama}
+        />
+      )}
       {tab === 'reward' && <RewardPage />}
       {tab === 'list' && <MyListPage onOpen={openDrama} />}
       {tab === 'profile' && <ProfilePage />}
