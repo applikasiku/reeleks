@@ -1,0 +1,62 @@
+name: Build REELEKS docs site
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vite.config.ts'
+      - 'tsconfig*.json'
+      - 'index.html'
+      - '.github/workflows/build-docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reeleks-docs-build
+  cancel-in-progress: true
+
+jobs:
+  build-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build for GitHub Pages docs path
+        env:
+          VITE_BASE_PATH: /reeleks/docs/
+        run: npm run build
+
+      - name: Publish build into docs folder
+        run: |
+          rm -rf docs
+          mkdir -p docs
+          cp -R dist/. docs/
+          touch docs/.nojekyll
+
+      - name: Commit generated docs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs
+          if git diff --cached --quiet; then
+            echo "No docs changes to commit"
+          else
+            git commit -m "chore: publish REELEKS docs build"
+            git push
+          fi
