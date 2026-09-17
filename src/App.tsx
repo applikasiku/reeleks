@@ -37,7 +37,9 @@ export default function App() {
   const [apiStatus, setApiStatus] = useState<'demo' | 'remote' | 'loading'>('loading')
   const playerStageRef = useRef<HTMLDivElement>(null)
   const playerChromeTimerRef = useRef<number | null>(null)
+  const playerTapTimerRef = useRef<number | null>(null)
   const playerLastTapRef = useRef(0)
+  const playerPointerStartYRef = useRef(0)
 
   useEffect(() => {
     let mounted = true
@@ -65,6 +67,13 @@ export default function App() {
     }
   }
 
+  const clearPlayerTapTimer = () => {
+    if (playerTapTimerRef.current !== null) {
+      window.clearTimeout(playerTapTimerRef.current)
+      playerTapTimerRef.current = null
+    }
+  }
+
   const hidePlayerChrome = () => {
     clearPlayerChromeTimer()
     setPlayerChromeVisible(false)
@@ -81,7 +90,11 @@ export default function App() {
 
   useEffect(() => {
     hidePlayerChrome()
-    return clearPlayerChromeTimer
+    clearPlayerTapTimer()
+    return () => {
+      clearPlayerChromeTimer()
+      clearPlayerTapTimer()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, selectedEpisode.id])
 
@@ -125,6 +138,11 @@ export default function App() {
     if (next) void resolveAndPlay(selectedDrama, next)
   }
 
+  const previousEpisode = () => {
+    const previous = selectedDrama.episodes[currentEpisodeIndex - 1]
+    if (previous) void resolveAndPlay(selectedDrama, previous)
+  }
+
   const toggleSaved = () => {
     const updated = toggleFavorite(selectedDrama.id)
     setSavedDramaIds(new Set(updated))
@@ -158,14 +176,38 @@ export default function App() {
     }
   }
 
+  const togglePlayerPlayback = () => {
+    const video = playerStageRef.current?.querySelector('video') as HTMLVideoElement | null
+    if (!video) return
+    if (video.paused) void video.play().catch(() => undefined)
+    else video.pause()
+  }
+
+  const handlePlayerPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    playerPointerStartYRef.current = event.clientY
+  }
+
   const handlePlayerPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
     if (target.closest('button, a')) return
 
-    const now = Date.now()
-    const delta = now - playerLastTapRef.current
+    const deltaY = event.clientY - playerPointerStartYRef.current
+    const swipeThreshold = 70
 
-    if (delta > 0 && delta < 340) {
+    if (Math.abs(deltaY) >= swipeThreshold) {
+      clearPlayerTapTimer()
+      playerLastTapRef.current = 0
+      hidePlayerChrome()
+      if (deltaY < 0) nextEpisode()
+      else previousEpisode()
+      return
+    }
+
+    const now = Date.now()
+    const deltaTap = now - playerLastTapRef.current
+
+    if (deltaTap > 0 && deltaTap < 340) {
+      clearPlayerTapTimer()
       playerLastTapRef.current = 0
       if (playerChromeVisible) hidePlayerChrome()
       else showPlayerChromeTemporarily()
@@ -173,6 +215,12 @@ export default function App() {
     }
 
     playerLastTapRef.current = now
+    clearPlayerTapTimer()
+    playerTapTimerRef.current = window.setTimeout(() => {
+      togglePlayerPlayback()
+      playerTapTimerRef.current = null
+      playerLastTapRef.current = 0
+    }, 340)
   }
 
   if (screen === 'detail') {
@@ -193,6 +241,7 @@ export default function App() {
       <div
         ref={playerStageRef}
         className="player-screen v2-player-stage clean-watch-stage"
+        onPointerDown={handlePlayerPointerDown}
         onPointerUp={handlePlayerPointerUp}
       >
         <SecureHlsPlayer
@@ -208,6 +257,7 @@ export default function App() {
           showProgress={playerChromeVisible}
           showSecurityOverlay={playerChromeVisible}
           shouldLoad
+          onEnded={nextEpisode}
         />
 
         <div className={`feed-gradient ${chromeClass}`} />
@@ -242,7 +292,7 @@ export default function App() {
             <small>{selectedEpisode.title}</small>
           </div>
           <div className="player-next-row">
-            <span className="api-status-dot">{apiStatus === 'remote' ? 'API LIVE' : 'DEMO V2.2'}</span>
+            <span className="api-status-dot">{apiStatus === 'remote' ? 'API LIVE' : 'DEMO V2.3'}</span>
             <button disabled={isLastEpisode} onClick={nextEpisode}>
               {isLastEpisode ? 'Episode terakhir' : `Episode ${currentEpisodeIndex + 2} ›`}
             </button>
