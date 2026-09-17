@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowLeft, ChevronRight, Play, ShieldCheck, Star } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Info, Play, ShieldCheck, Star } from 'lucide-react'
 import type { Drama, Episode } from '../types'
 
 export default function DetailPage({
@@ -12,6 +12,10 @@ export default function DetailPage({
   onPlay: (episode: Episode) => void
 }) {
   const [tab, setTab] = useState<'episode' | 'detail' | 'recommendation'>('episode')
+  const playable = drama.playable !== false
+  const totalEpisodes = drama.episodeCount || drama.episodes.length
+  const firstPlayable = drama.episodes.find(episode => episode.playable !== false)
+  const provider = drama.providerLabel || drama.source?.toUpperCase() || 'REELEKS'
 
   return (
     <main className="page detail">
@@ -24,17 +28,26 @@ export default function DetailPage({
         <div className="detail-overlay">
           <div className="detail-brand-row">
             <div className="brand small"><span className="brand-r">R</span>EELEKS</div>
-            <span className="protected-chip"><ShieldCheck size={14} /> Protected stream</span>
+            <span className={playable ? 'protected-chip' : 'protected-chip metadata-chip'}>
+              {playable ? <ShieldCheck size={14} /> : <Info size={14} />}
+              {playable ? 'Protected stream' : `${provider} metadata`}
+            </span>
           </div>
           <h1>{drama.title}</h1>
           <div className="tags">{drama.genres.map(g => <span key={g}>{g}</span>)}</div>
           <div className="detail-stats">
-            <span><Star size={15} fill="currentColor" /> {drama.rating}</span>
-            <span>{drama.views} penonton</span>
-            <span>{drama.episodes.length} episode</span>
+            <span><Star size={15} fill="currentColor" /> {drama.rating || '—'}</span>
+            <span>{drama.views} {drama.views === '—' ? '' : 'penonton'}</span>
+            <span>{totalEpisodes} episode</span>
+            <span>{provider}</span>
           </div>
-          <button className="primary wide" onClick={() => onPlay(drama.episodes[0])}>
-            <Play size={18} fill="currentColor" /> Mulai dari Episode 1
+          <button
+            className="primary wide"
+            disabled={!playable || !firstPlayable}
+            onClick={() => firstPlayable && onPlay(firstPlayable)}
+          >
+            <Play size={18} fill="currentColor" />
+            {playable && firstPlayable ? 'Mulai Menonton' : 'Playback belum tersedia'}
           </button>
         </div>
       </section>
@@ -47,34 +60,46 @@ export default function DetailPage({
 
       {tab === 'episode' && (
         <>
-          <section className="protected-note">
-            <ShieldCheck size={20} />
-            <span>Video dilindungi. Tombol unduh tidak disediakan pada konten protected.</span>
+          <section className={playable ? 'protected-note' : 'protected-note metadata-note'}>
+            {playable ? <ShieldCheck size={20} /> : <Info size={20} />}
+            <span>
+              {playable
+                ? 'Video dilindungi. Tombol unduh tidak disediakan pada konten protected.'
+                : `Judul ini berasal dari ${provider} sebagai metadata. REELEKS tidak mengaktifkan playback sampai ada sumber streaming yang Anda berhak tayangkan.`}
+            </span>
           </section>
 
           <section>
             <div className="section-title episode-heading">
               <div>
-                <span className="section-kicker">DAFTAR TONTON</span>
-                <h2>Semua Episode ({drama.episodes.length})</h2>
+                <span className="section-kicker">DAFTAR EPISODE</span>
+                <h2>{playable ? 'Semua Episode' : 'Informasi Episode'} ({totalEpisodes})</h2>
               </div>
-              <span className="episode-range">1–{Math.min(10, drama.episodes.length)}</span>
+              <span className="episode-range">1–{Math.min(10, totalEpisodes)}</span>
             </div>
             <div className="episode-list">
-              {drama.episodes.map(ep => (
-                <button key={ep.id} className="episode-row" onClick={() => onPlay(ep)}>
-                  <div className="episode-thumb">
-                    <img src={ep.poster} alt={`Episode ${ep.number}`} loading="lazy" />
-                    <span className="episode-play"><Play size={14} fill="currentColor" /></span>
-                  </div>
-                  <div>
-                    <strong>Episode {ep.number}</strong>
-                    <span>{ep.title}</span>
-                    <small>{ep.duration} · Sub Indo</small>
-                  </div>
-                  <ChevronRight size={18} />
-                </button>
-              ))}
+              {drama.episodes.map(ep => {
+                const canPlay = playable && ep.playable !== false
+                return (
+                  <button
+                    key={ep.id}
+                    className={`episode-row ${canPlay ? '' : 'episode-disabled'}`}
+                    onClick={() => canPlay && onPlay(ep)}
+                    disabled={!canPlay}
+                  >
+                    <div className="episode-thumb">
+                      <img src={ep.poster} alt={`Episode ${ep.number}`} loading="lazy" />
+                      <span className="episode-play">{canPlay ? <Play size={14} fill="currentColor" /> : <Info size={14} />}</span>
+                    </div>
+                    <div>
+                      <strong>Episode {ep.number}</strong>
+                      <span>{ep.title}</span>
+                      <small>{ep.duration} · {canPlay ? 'Siap diputar' : provider}</small>
+                    </div>
+                    <ChevronRight size={18} />
+                  </button>
+                )
+              })}
             </div>
           </section>
         </>
@@ -86,19 +111,19 @@ export default function DetailPage({
           <h2>{drama.title}</h2>
           <p>{drama.synopsis}</p>
           <div className="detail-info-grid">
-            <div><span>Rating</span><strong>{drama.rating}/10</strong></div>
-            <div><span>Penonton</span><strong>{drama.views}</strong></div>
-            <div><span>Episode</span><strong>{drama.episodes.length}</strong></div>
-            <div><span>Subtitle</span><strong>Indonesia</strong></div>
+            <div><span>Rating</span><strong>{drama.rating || '—'}/10</strong></div>
+            <div><span>Popularitas</span><strong>{drama.views}</strong></div>
+            <div><span>Episode</span><strong>{totalEpisodes}</strong></div>
+            <div><span>Sumber</span><strong>{provider}</strong></div>
           </div>
         </section>
       )}
 
       {tab === 'recommendation' && (
         <section className="detail-copy-card empty-recommendation">
-          <span className="section-kicker">UNTUKMU</span>
+          <span className="section-kicker">MULTI-PROVIDER</span>
           <h2>Rekomendasi berikutnya</h2>
-          <p>Mesin rekomendasi akan dihubungkan ke API katalog pada versi berikutnya.</p>
+          <p>Katalog REELEKS sekarang dapat menggabungkan AgenAPI/provider berlisensi, TVmaze, TMDB, AniList, Jikan, OMDb, dan enrichment Apify.</p>
         </section>
       )}
     </main>
