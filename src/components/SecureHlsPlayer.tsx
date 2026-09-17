@@ -16,6 +16,7 @@ type Props = {
   showSecurityOverlay?: boolean
   loop?: boolean
   shouldLoad?: boolean
+  onEnded?: () => void
 }
 
 export default function SecureHlsPlayer({
@@ -31,7 +32,8 @@ export default function SecureHlsPlayer({
   showProgress = false,
   showSecurityOverlay = true,
   loop = false,
-  shouldLoad = true
+  shouldLoad = true,
+  onEnded
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [progress, setProgress] = useState(0)
@@ -96,12 +98,14 @@ export default function SecureHlsPlayer({
     const onPause = () => setIsPlaying(false)
     const onWaiting = () => setBuffering(true)
     const onPlaying = () => setBuffering(false)
+    const onVideoEnded = () => onEnded?.()
 
     video.addEventListener('timeupdate', onTime)
     video.addEventListener('play', onPlay)
     video.addEventListener('pause', onPause)
     video.addEventListener('waiting', onWaiting)
     video.addEventListener('playing', onPlaying)
+    video.addEventListener('ended', onVideoEnded)
 
     return () => {
       video.removeEventListener('timeupdate', onTime)
@@ -109,12 +113,13 @@ export default function SecureHlsPlayer({
       video.removeEventListener('pause', onPause)
       video.removeEventListener('waiting', onWaiting)
       video.removeEventListener('playing', onPlaying)
+      video.removeEventListener('ended', onVideoEnded)
       hls?.destroy()
       video.pause()
       video.removeAttribute('src')
       video.load()
     }
-  }, [src, dramaId, episodeId, shouldLoad])
+  }, [src, dramaId, episodeId, shouldLoad, onEnded])
 
   useEffect(() => {
     const video = videoRef.current
