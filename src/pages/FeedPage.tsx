@@ -42,7 +42,9 @@ export default function FeedPage({
   const [savedDramaIds, setSavedDramaIds] = useState<Set<string>>(() => new Set(getFavorites()))
   const containerRef = useRef<HTMLDivElement>(null)
   const chromeTimerRef = useRef<number | null>(null)
+  const tapTimerRef = useRef<number | null>(null)
   const lastTapRef = useRef(0)
+  const pointerStartYRef = useRef(0)
 
   const feed = useMemo<FeedEntry[]>(() => {
     if (mode === 'title') {
@@ -60,6 +62,13 @@ export default function FeedPage({
     if (chromeTimerRef.current !== null) {
       window.clearTimeout(chromeTimerRef.current)
       chromeTimerRef.current = null
+    }
+  }
+
+  const clearTapTimer = () => {
+    if (tapTimerRef.current !== null) {
+      window.clearTimeout(tapTimerRef.current)
+      tapTimerRef.current = null
     }
   }
 
@@ -84,13 +93,18 @@ export default function FeedPage({
 
   useEffect(() => {
     setChrome(false)
-    return () => onChromeChange?.(false)
+    return () => {
+      clearChromeTimer()
+      clearTapTimer()
+      onChromeChange?.(false)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
     setActiveIndex(0)
     hideChrome()
+    clearTapTimer()
     containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
     return clearChromeTimer
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -98,6 +112,7 @@ export default function FeedPage({
 
   useEffect(() => {
     hideChrome()
+    clearTapTimer()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndex])
 
@@ -163,14 +178,41 @@ export default function FeedPage({
     }
   }
 
+  const toggleStagePlayback = (stage: HTMLElement) => {
+    const video = stage.querySelector('video') as HTMLVideoElement | null
+    if (!video) return
+    if (video.paused) void video.play().catch(() => undefined)
+    else video.pause()
+  }
+
+  const scrollToFeedIndex = (index: number) => {
+    const nextIndex = Math.max(0, Math.min(feed.length - 1, index))
+    const root = containerRef.current
+    const target = root?.querySelector<HTMLElement>(`[data-feed-index="${nextIndex}"]`)
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  const handleStagePointerDown = (event: React.PointerEvent<HTMLElement>) => {
+    pointerStartYRef.current = event.clientY
+  }
+
   const handleStagePointerUp = (event: React.PointerEvent<HTMLElement>) => {
     const target = event.target as HTMLElement
     if (target.closest('button, a, input')) return
 
+    const moved = Math.abs(event.clientY - pointerStartYRef.current)
+    if (moved > 18) {
+      clearTapTimer()
+      lastTapRef.current = 0
+      return
+    }
+
+    const stage = event.currentTarget
     const now = Date.now()
     const delta = now - lastTapRef.current
 
     if (delta > 0 && delta < 340) {
+      clearTapTimer()
       lastTapRef.current = 0
       if (chromeVisible) hideChrome()
       else showChromeTemporarily()
@@ -178,6 +220,12 @@ export default function FeedPage({
     }
 
     lastTapRef.current = now
+    clearTapTimer()
+    tapTimerRef.current = window.setTimeout(() => {
+      toggleStagePlayback(stage)
+      tapTimerRef.current = null
+      lastTapRef.current = 0
+    }, 340)
   }
 
   return (
@@ -195,6 +243,7 @@ export default function FeedPage({
             className="feed-item tiktok-stage clean-watch-stage"
             key={`${mode}-${episode.id}`}
             data-feed-index={index}
+            onPointerDown={handleStagePointerDown}
             onPointerUp={handleStagePointerUp}
           >
             <SecureHlsPlayer
@@ -209,8 +258,11 @@ export default function FeedPage({
               showControls={false}
               showProgress={showChrome}
               showSecurityOverlay={showChrome}
-              loop={mode === 'title'}
+              loop={false}
               shouldLoad={shouldLoad}
+              onEnded={() => {
+                if (active && index < feed.length - 1) scrollToFeedIndex(index + 1)
+              }}
             />
 
             <div className={`feed-topbar v2-feed-topbar ${chromeClass}`}>
