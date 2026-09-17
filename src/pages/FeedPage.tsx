@@ -35,9 +35,12 @@ export default function FeedPage({
   const [mode, setMode] = useState<FeedMode>('episode')
   const [activeIndex, setActiveIndex] = useState(0)
   const [muted, setMuted] = useState(true)
+  const [chromeVisible, setChromeVisible] = useState(false)
   const [likedIds, setLikedIds] = useState<Set<string>>(() => getStoredSet('reeleks.likes.v2'))
   const [savedDramaIds, setSavedDramaIds] = useState<Set<string>>(() => new Set(getFavorites()))
   const containerRef = useRef<HTMLDivElement>(null)
+  const chromeTimerRef = useRef<number | null>(null)
+  const lastTapRef = useRef(0)
 
   const feed = useMemo<FeedEntry[]>(() => {
     if (mode === 'title') {
@@ -51,10 +54,39 @@ export default function FeedPage({
     )
   }, [dramas, mode])
 
+  const clearChromeTimer = () => {
+    if (chromeTimerRef.current !== null) {
+      window.clearTimeout(chromeTimerRef.current)
+      chromeTimerRef.current = null
+    }
+  }
+
+  const hideChrome = () => {
+    clearChromeTimer()
+    setChromeVisible(false)
+  }
+
+  const showChromeTemporarily = () => {
+    clearChromeTimer()
+    setChromeVisible(true)
+    chromeTimerRef.current = window.setTimeout(() => {
+      setChromeVisible(false)
+      chromeTimerRef.current = null
+    }, 3500)
+  }
+
   useEffect(() => {
     setActiveIndex(0)
+    hideChrome()
     containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+    return clearChromeTimer
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode])
+
+  useEffect(() => {
+    hideChrome()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeIndex])
 
   useEffect(() => {
     const root = containerRef.current
@@ -118,21 +150,21 @@ export default function FeedPage({
     }
   }
 
-  const handleStageClick = async (event: React.MouseEvent<HTMLElement>) => {
+  const handleStagePointerUp = (event: React.PointerEvent<HTMLElement>) => {
     const target = event.target as HTMLElement
     if (target.closest('button, a, input')) return
 
-    const stage = event.currentTarget
-    const video = stage.querySelector('video') as HTMLVideoElement | null
+    const now = Date.now()
+    const delta = now - lastTapRef.current
 
-    if (!document.fullscreenElement) {
-      await enterStageFullscreen(stage)
+    if (delta > 0 && delta < 340) {
+      lastTapRef.current = 0
+      if (chromeVisible) hideChrome()
+      else showChromeTemporarily()
       return
     }
 
-    if (!video) return
-    if (video.paused) void video.play().catch(() => undefined)
-    else video.pause()
+    lastTapRef.current = now
   }
 
   return (
@@ -142,14 +174,15 @@ export default function FeedPage({
         const shouldLoad = Math.abs(index - activeIndex) <= 1
         const liked = likedIds.has(episode.id)
         const saved = savedDramaIds.has(drama.id)
+        const showChrome = active && chromeVisible
+        const chromeClass = `watch-chrome ${showChrome ? 'chrome-visible' : 'chrome-hidden'}`
 
         return (
           <section
             className="feed-item tiktok-stage"
             key={`${mode}-${episode.id}`}
             data-feed-index={index}
-            onClick={handleStageClick}
-            onDoubleClick={() => toggleLike(episode.id)}
+            onPointerUp={handleStagePointerUp}
           >
             <SecureHlsPlayer
               src={episode.hlsUrl}
@@ -161,12 +194,13 @@ export default function FeedPage({
               autoPlay={active}
               muted={muted}
               showControls={false}
-              showProgress
+              showProgress={showChrome}
+              showSecurityOverlay={showChrome}
               loop={mode === 'title'}
               shouldLoad={shouldLoad}
             />
 
-            <div className="feed-topbar v2-feed-topbar">
+            <div className={`feed-topbar v2-feed-topbar ${chromeClass}`}>
               <span className="feed-brand"><b>R</b>EELEKS</span>
               <div className="feed-mode-switch" role="tablist" aria-label="Mode feed">
                 <button className={mode === 'episode' ? 'active' : ''} onClick={() => setMode('episode')}>Episode</button>
@@ -177,9 +211,9 @@ export default function FeedPage({
               </button>
             </div>
 
-            <div className="feed-gradient" />
+            <div className={`feed-gradient ${chromeClass}`} />
 
-            <div className={`feed-meta v2-feed-meta ${active ? 'v21-auto-hide-meta' : ''}`}>
+            <div className={`feed-meta v2-feed-meta ${chromeClass}`}>
               <strong>@REELEKS <span className="verified"><Check size={12} /></span></strong>
               <h2>{drama.title}</h2>
               <p className="feed-episode">
@@ -191,7 +225,7 @@ export default function FeedPage({
               <button className="text-link" onClick={() => onOpenDrama(drama)}>Detail & semua episode ›</button>
             </div>
 
-            <aside className="feed-actions v2-feed-actions">
+            <aside className={`feed-actions v2-feed-actions ${chromeClass}`}>
               <button className={liked ? 'active-action' : ''} onClick={() => toggleLike(episode.id)} aria-label="Suka">
                 <Heart fill={liked ? 'currentColor' : 'none'} />
                 <span>{liked ? 'Disukai' : '128.7K'}</span>
