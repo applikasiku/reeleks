@@ -1,19 +1,28 @@
-export interface Env {
-  PLAYBACK_SECRET: string
-  PROVIDER_BASE_URL: string
-  PROVIDER_API_KEY?: string
-  PROVIDER_API_PREFIX?: string
-  PROVIDER_AUTH_MODE?: 'bearer' | 'x-api-key' | 'header' | 'query' | 'none'
-  PROVIDER_API_KEY_HEADER?: string
-  PROVIDER_API_KEY_QUERY?: string
-  PROVIDER_PLAYBACK_PATH?: string
+import {
+  aggregateHome,
+  aggregateSearch,
+  getDramaDetail,
+  isPrimaryPlaybackId,
+  primaryFetch,
+  primaryPlaybackPath,
+  providerStatuses,
+  splitUnifiedId,
+  type ProviderEnv
+} from './providers'
+
+export interface Env extends ProviderEnv {
+  PLAYBACK_SECRET?: string
   ALLOWED_ORIGIN?: string
 }
 
 function corsHeaders(request: Request, env: Env) {
   const origin = request.headers.get('Origin') || '*'
-  const allowed = env.ALLOWED_ORIGIN || '*'
-  const resolvedOrigin = allowed === '*' ? origin : allowed
+  const configured = (env.ALLOWED_ORIGIN || '*')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean)
+  const allowAny = configured.includes('*')
+  const resolvedOrigin = allowAny || configured.includes(origin) ? origin : configured[0] || '*'
 
   return {
     'Access-Control-Allow-Origin': resolvedOrigin,
@@ -24,13 +33,13 @@ function corsHeaders(request: Request, env: Env) {
 }
 
 function json(request: Request, env: Env, body: unknown, init: ResponseInit = {}) {
+  const headers = new Headers(init.headers || {})
+  Object.entries(corsHeaders(request, env)).forEach(([key, value]) => headers.set(key, value))
+  if (!headers.has('Cache-Control')) headers.set('Cache-Control', 'no-store')
+
   return Response.json(body, {
     ...init,
-    headers: {
-      ...corsHeaders(request, env),
-      'Cache-Control': 'no-store',
-      ...(init.headers || {})
-    }
+    headers
   })
 }
 
@@ -59,55 +68,60 @@ async function sign(secret: string, payload: string) {
   return base64Url(signature)
 }
 
-function providerUrl(env: Env, path: string) {
-  const base = env.PROVIDER_BASE_URL.replace(/\/$/, '')
+function buildPrimaryUrl(env: Env, path: string) {
+  const base = (env.PROVIDER_BASE_URL || '').replace(/\/$/, '')
   const prefix = (env.PROVIDER_API_PREFIX || '').trim()
   const normalizedPrefix = prefix && !prefix.startsWith('/') ? `/${prefix}` : prefix
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
   const url = new URL(`${base}${normalizedPrefix}${normalizedPath}`)
 
-  const mode = env.PROVIDER_AUTH_MODE || 'bearer'
-  if (mode === 'query' && env.PROVIDER_API_KEY) {
+  if ((env.PROVIDER_AUTH_MODE || 'bearer') === 'query' && env.PROVIDER_API_KEY) {
     url.searchParams.set(env.PROVIDER_API_KEY_QUERY || 'api_key', env.PROVIDER_API_KEY)
   }
 
   return url
 }
 
-function providerHeaders(env: Env) {
-  const headers = new Headers({ Accept: 'application/json' })
-  const key = env.PROVIDER_API_KEY
-  const mode = env.PROVIDER_AUTH_MODE || 'bearer'
-
-  if (!key || mode === 'none' || mode === 'query') return headers
-
-  if (mode === 'bearer') {
-    headers.set('Authorization', `Bearer ${key}`)
-  } else if (mode === 'x-api-key') {
-    headers.set('X-API-Key', key)
-  } else if (mode === 'header') {
-    headers.set(env.PROVIDER_API_KEY_HEADER || 'X-API-Key', key)
+function extractPlaybackUrl(value: unknown): string {
+  if (!value || typeof value !== 'object') return ''
+  const record = value as Record<string, unknown>
+  for (const key of ['playbackUrl', 'playback_url', 'hlsUrl', 'hls_url', 'm3u8', 'streamUrl', 'stream_url', 'url']) {
+    if (typeof record[key] === 'string' && record[key]) return record[key] as string
   }
-
-  return headers
+  if (record.data && typeof record.data === 'object') return extractPlaybackUrl(record.data)
+  return ''
 }
 
-async function providerFetch(env: Env, path: string) {
-  const response = await fetch(providerUrl(env, path), {
-    headers: providerHeaders(env)
-  })
+async function resolvePrimaryPlayback(env: Env, episodeId: string) {
+  const path = primaryPlaybackPath(env, episodeId)
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '')
-    throw new Error(`Provider error ${response.status}${detail ? `: ${detail.slice(0, 160)}` : ''}`)
+  if (env.PROVIDER_PLAYBACK_MODE === 'json') {
+    const data = await primaryFetch(env, path)
+    const playbackUrl = extractPlaybackUrl(data)
+    if (!playbackUrl) throw new Error('Provider playback response does not contain a stream URL')
+    return {
+      playbackUrl,
+      expiresAt: Math.floor(Date.now() / 1000) + 180
+    }
   }
 
-  return response.json()
+  const exp = Math.floor(Date.now() / 1000) + 60 * 5
+  const { rawId } = splitUnifiedId(episodeId)
+  const url = buildPrimaryUrl(env, path)
+
+  if (env.PLAYBACK_SECRET) {
+    const payload = `${rawId}.${exp}`
+    url.searchParams.set('exp', String(exp))
+    url.searchParams.set('sig', await sign(env.PLAYBACK_SECRET, payload))
+  }
+
+  return { playbackUrl: url.toString(), expiresAt: exp }
 }
 
-function playbackPath(env: Env, episodeId: string) {
-  const template = env.PROVIDER_PLAYBACK_PATH || '/playback/{episodeId}/master.m3u8'
-  return template.replace('{episodeId}', encodeURIComponent(episodeId))
+function cache(seconds: number, sharedSeconds = seconds) {
+  return {
+    'Cache-Control': `public, max-age=${seconds}, s-maxage=${sharedSeconds}`
+  }
 }
 
 export default {
@@ -126,96 +140,102 @@ export default {
         return json(request, env, {
           ok: true,
           app: 'REELEKS',
-          version: '2.5',
+          version: '2.6',
+          multiProvider: true,
           timestamp: new Date().toISOString()
         })
       }
 
-      if (url.pathname === '/api/provider/status') {
-        const providerHost = (() => {
-          try { return new URL(env.PROVIDER_BASE_URL).host } catch { return null }
-        })()
-
+      if (url.pathname === '/api/providers' || url.pathname === '/api/provider/status') {
+        const providers = providerStatuses(env)
         return json(request, env, {
-          ok: Boolean(providerHost),
-          providerHost,
-          apiPrefix: env.PROVIDER_API_PREFIX || '',
-          authMode: env.PROVIDER_AUTH_MODE || 'bearer',
-          apiKeyConfigured: Boolean(env.PROVIDER_API_KEY),
-          playbackTemplateConfigured: Boolean(env.PROVIDER_PLAYBACK_PATH)
-        })
+          ok: true,
+          enabled: providers.filter(provider => provider.enabled).length,
+          providers
+        }, { headers: cache(30, 60) })
       }
 
       if (url.pathname === '/api/home') {
-        const data = await providerFetch(env, '/home')
+        const data = await aggregateHome(env)
         return json(request, env, data, {
-          headers: { 'Cache-Control': 'public, max-age=60, s-maxage=120' }
+          headers: cache(60, 120)
         })
       }
 
       if (url.pathname === '/api/search') {
-        const query = url.searchParams.get('q') || ''
-        const data = await providerFetch(env, `/search?q=${encodeURIComponent(query)}`)
+        const query = (url.searchParams.get('q') || '').trim()
+        if (!query) return json(request, env, { dramas: [], providers: providerStatuses(env) })
+        const data = await aggregateSearch(env, query)
         return json(request, env, data, {
-          headers: { 'Cache-Control': 'public, max-age=30, s-maxage=60' }
-        })
-      }
-
-      const dramaMatch = url.pathname.match(/^\/api\/drama\/([^/]+)$/)
-      if (dramaMatch) {
-        const id = encodeURIComponent(decodeURIComponent(dramaMatch[1]))
-        const data = await providerFetch(env, `/drama/${id}`)
-        return json(request, env, data, {
-          headers: { 'Cache-Control': 'public, max-age=60, s-maxage=180' }
+          headers: cache(30, 60)
         })
       }
 
       const episodeMatch = url.pathname.match(/^\/api\/drama\/([^/]+)\/episodes$/)
       if (episodeMatch) {
-        const id = encodeURIComponent(decodeURIComponent(episodeMatch[1]))
-        const data = await providerFetch(env, `/drama/${id}/episodes`)
-        return json(request, env, data, {
-          headers: { 'Cache-Control': 'public, max-age=60, s-maxage=180' }
+        const id = decodeURIComponent(episodeMatch[1])
+        const drama = await getDramaDetail(env, id)
+        return json(request, env, {
+          dramaId: drama.id,
+          source: drama.source,
+          playable: drama.playable,
+          episodes: drama.episodes
+        }, { headers: cache(60, 180) })
+      }
+
+      const dramaMatch = url.pathname.match(/^\/api\/drama\/([^/]+)$/)
+      if (dramaMatch) {
+        const id = decodeURIComponent(dramaMatch[1])
+        const drama = await getDramaDetail(env, id)
+        return json(request, env, drama, {
+          headers: cache(60, 180)
         })
+      }
+
+      const apifyMatch = url.pathname.match(/^\/api\/apify\/pinedrama\/([^/]+)$/)
+      if (apifyMatch) {
+        const collectionId = decodeURIComponent(apifyMatch[1])
+        const drama = await getDramaDetail(env, `apify:${collectionId}`)
+        return json(request, env, drama)
       }
 
       const playbackMatch = url.pathname.match(/^\/api\/playback\/([^/]+)$/)
       if (playbackMatch) {
         const episodeId = decodeURIComponent(playbackMatch[1])
-        const exp = Math.floor(Date.now() / 1000) + 60 * 5
-        const payload = `${episodeId}.${exp}`
-        const sig = await sign(env.PLAYBACK_SECRET, payload)
 
-        const upstream = providerUrl(env, playbackPath(env, episodeId))
-        upstream.searchParams.set('exp', String(exp))
-        upstream.searchParams.set('sig', sig)
+        if (!isPrimaryPlaybackId(episodeId)) {
+          return json(request, env, {
+            error: 'METADATA_ONLY_PROVIDER',
+            message: 'Provider ini hanya menyediakan metadata. Gunakan provider streaming yang Anda miliki hak tayangnya untuk video.'
+          }, { status: 409 })
+        }
 
-        return json(request, env, {
-          playbackUrl: upstream.toString(),
-          expiresAt: exp
-        })
+        const playback = await resolvePrimaryPlayback(env, episodeId)
+        return json(request, env, playback)
       }
 
       return json(request, env, {
         ok: true,
-        app: 'REELEKS API Gateway V2.5',
+        app: 'REELEKS Multi-Provider API Gateway V2.6',
         routes: [
           '/api/health',
-          '/api/provider/status',
+          '/api/providers',
           '/api/home',
           '/api/search?q=',
-          '/api/drama/:id',
-          '/api/drama/:id/episodes',
+          '/api/drama/:source:id',
+          '/api/drama/:source:id/episodes',
+          '/api/apify/pinedrama/:collectionId',
           '/api/playback/:episodeId'
-        ]
+        ],
+        providers: providerStatuses(env)
       })
     } catch (error) {
       return json(
         request,
         env,
         {
-          error: 'UPSTREAM_PROVIDER_ERROR',
-          message: error instanceof Error ? error.message : 'Unknown provider error'
+          error: 'REELEKS_GATEWAY_ERROR',
+          message: error instanceof Error ? error.message : 'Unknown gateway error'
         },
         { status: 502 }
       )
