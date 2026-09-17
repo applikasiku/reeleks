@@ -1,11 +1,24 @@
-name = "reeleks-v2-api"
+name = "reeleks-v25-api"
 main = "worker.ts"
 compatibility_date = "2026-09-17"
 
 [vars]
+# IMPORTANT: this must be the actual API base URL from your provider docs,
+# not merely a dashboard/login page URL.
 PROVIDER_BASE_URL = "https://your-licensed-video-provider.example.com"
+PROVIDER_API_PREFIX = ""
+
+# Supported: bearer | x-api-key | header | query | none
+PROVIDER_AUTH_MODE = "bearer"
+PROVIDER_API_KEY_HEADER = "X-API-Key"
+PROVIDER_API_KEY_QUERY = "api_key"
+
+# Change this only if your provider uses another playback route.
+# {episodeId} will be URL-encoded automatically.
+PROVIDER_PLAYBACK_PATH = "/playback/{episodeId}/master.m3u8"
+
 ALLOWED_ORIGIN = "https://applikasiku.github.io"
 
-# Production secrets:
+# Production secrets (never commit the real values):
 # npx wrangler secret put PLAYBACK_SECRET
 # npx wrangler secret put PROVIDER_API_KEY
