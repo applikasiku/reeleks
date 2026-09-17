@@ -36,9 +36,14 @@ export default function SecureHlsPlayer({
   onEnded
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const onEndedRef = useRef(onEnded)
   const [progress, setProgress] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [buffering, setBuffering] = useState(false)
+
+  useEffect(() => {
+    onEndedRef.current = onEnded
+  }, [onEnded])
 
   useEffect(() => {
     const video = videoRef.current
@@ -98,7 +103,7 @@ export default function SecureHlsPlayer({
     const onPause = () => setIsPlaying(false)
     const onWaiting = () => setBuffering(true)
     const onPlaying = () => setBuffering(false)
-    const onVideoEnded = () => onEnded?.()
+    const onVideoEnded = () => onEndedRef.current?.()
 
     video.addEventListener('timeupdate', onTime)
     video.addEventListener('play', onPlay)
@@ -119,7 +124,7 @@ export default function SecureHlsPlayer({
       video.removeAttribute('src')
       video.load()
     }
-  }, [src, dramaId, episodeId, shouldLoad, onEnded])
+  }, [src, dramaId, episodeId, shouldLoad])
 
   useEffect(() => {
     const video = videoRef.current
