@@ -107,6 +107,17 @@ export default function FeedPage({
     }
   }
 
+  const enterStageFullscreen = async (stage: HTMLElement) => {
+    const video = stage.querySelector('video') as HTMLVideoElement | null
+
+    try {
+      if (!document.fullscreenElement) await stage.requestFullscreen()
+    } catch {
+      const safariVideo = video as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null
+      safariVideo?.webkitEnterFullscreen?.()
+    }
+  }
+
   const handleStageClick = async (event: React.MouseEvent<HTMLElement>) => {
     const target = event.target as HTMLElement
     if (target.closest('button, a, input')) return
@@ -115,14 +126,8 @@ export default function FeedPage({
     const video = stage.querySelector('video') as HTMLVideoElement | null
 
     if (!document.fullscreenElement) {
-      try {
-        await stage.requestFullscreen()
-        return
-      } catch {
-        const safariVideo = video as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null
-        safariVideo?.webkitEnterFullscreen?.()
-        return
-      }
+      await enterStageFullscreen(stage)
+      return
     }
 
     if (!video) return
@@ -227,7 +232,15 @@ export default function FeedPage({
                 <Bookmark fill={saved ? 'currentColor' : 'none'} />
                 <span>{saved ? 'Tersimpan' : 'Simpan'}</span>
               </button>
-              <button aria-label="Layar penuh" className="fullscreen-action">
+              <button
+                aria-label="Layar penuh"
+                className="fullscreen-action"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  const stage = event.currentTarget.closest('.tiktok-stage') as HTMLElement | null
+                  if (stage) void enterStageFullscreen(stage)
+                }}
+              >
                 <Maximize2 />
                 <span>Fullscreen</span>
               </button>
