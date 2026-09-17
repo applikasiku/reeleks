@@ -27,10 +27,12 @@ function getStoredSet(key: string) {
 
 export default function FeedPage({
   dramas,
-  onOpenDrama
+  onOpenDrama,
+  onChromeChange
 }: {
   dramas: Drama[]
   onOpenDrama: (drama: Drama) => void
+  onChromeChange?: (visible: boolean) => void
 }) {
   const [mode, setMode] = useState<FeedMode>('episode')
   const [activeIndex, setActiveIndex] = useState(0)
@@ -61,19 +63,30 @@ export default function FeedPage({
     }
   }
 
+  const setChrome = (visible: boolean) => {
+    setChromeVisible(visible)
+    onChromeChange?.(visible)
+  }
+
   const hideChrome = () => {
     clearChromeTimer()
-    setChromeVisible(false)
+    setChrome(false)
   }
 
   const showChromeTemporarily = () => {
     clearChromeTimer()
-    setChromeVisible(true)
+    setChrome(true)
     chromeTimerRef.current = window.setTimeout(() => {
-      setChromeVisible(false)
+      setChrome(false)
       chromeTimerRef.current = null
     }, 3500)
   }
+
+  useEffect(() => {
+    setChrome(false)
+    return () => onChromeChange?.(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     setActiveIndex(0)
@@ -179,7 +192,7 @@ export default function FeedPage({
 
         return (
           <section
-            className="feed-item tiktok-stage"
+            className="feed-item tiktok-stage clean-watch-stage"
             key={`${mode}-${episode.id}`}
             data-feed-index={index}
             onPointerUp={handleStagePointerUp}
