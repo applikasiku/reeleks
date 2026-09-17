@@ -1,10 +1,11 @@
-name = "reeleks-v25-api"
+name = "reeleks-v26-api"
 main = "worker.ts"
 compatibility_date = "2026-09-17"
 
 [vars]
-# IMPORTANT: this must be the actual API base URL from your provider docs,
-# not merely a dashboard/login page URL.
+# ===== PRIMARY / LICENSED STREAMING PROVIDER =====
+# Isi dengan base URL API resmi dari provider Anda (misalnya AgenAPI jika dokumentasinya mengizinkan).
+PROVIDER_NAME = "AgenAPI"
 PROVIDER_BASE_URL = "https://your-licensed-video-provider.example.com"
 PROVIDER_API_PREFIX = ""
 
@@ -13,12 +14,40 @@ PROVIDER_AUTH_MODE = "bearer"
 PROVIDER_API_KEY_HEADER = "X-API-Key"
 PROVIDER_API_KEY_QUERY = "api_key"
 
-# Change this only if your provider uses another playback route.
-# {episodeId} will be URL-encoded automatically.
+# AgenAPI menampilkan Public Key + Private Key. Nama header harus disesuaikan
+# dengan dokumentasi resminya sebelum diaktifkan.
+PROVIDER_PUBLIC_KEY_HEADER = "X-Public-Key"
+PROVIDER_PRIVATE_KEY_HEADER = "X-Private-Key"
+
+# Semua path ini configurable supaya kita tidak menebak struktur API provider.
+PROVIDER_HOME_PATH = "/home"
+PROVIDER_SEARCH_PATH = "/search?q={query}"
+PROVIDER_DETAIL_PATH = "/drama/{id}"
+PROVIDER_EPISODES_PATH = "/drama/{id}/episodes"
 PROVIDER_PLAYBACK_PATH = "/playback/{episodeId}/master.m3u8"
+
+# direct-template = Worker membentuk URL playback dari template di atas.
+# json = Worker memanggil endpoint playback dan membaca playbackUrl/hlsUrl/url dari JSON.
+PROVIDER_PLAYBACK_MODE = "direct-template"
+
+# ===== PUBLIC / METADATA PROVIDERS =====
+# TVmaze, AniList, dan Jikan aktif otomatis tanpa secret.
+# TMDB dan OMDb aktif hanya setelah secret/API key ditambahkan.
+
+# ===== APIFY ENRICHMENT =====
+# Actor dari screenshot Anda dapat dipasang di sini. Jalur ini hanya digunakan
+# on-demand untuk enrichment metadata, bukan sebagai sumber playback default.
+APIFY_PINEDRAMA_ACTOR_ID = "6Ok87oEMhZ6vGSLXI"
 
 ALLOWED_ORIGIN = "https://applikasiku.github.io"
 
-# Production secrets (never commit the real values):
+# ===== PRODUCTION SECRETS =====
+# Jangan pernah commit nilai asli. Jalankan dari folder worker:
 # npx wrangler secret put PLAYBACK_SECRET
 # npx wrangler secret put PROVIDER_API_KEY
+# npx wrangler secret put PROVIDER_PUBLIC_KEY
+# npx wrangler secret put PROVIDER_PRIVATE_KEY
+# npx wrangler secret put TMDB_BEARER_TOKEN
+# atau: npx wrangler secret put TMDB_API_KEY
+# npx wrangler secret put OMDB_API_KEY
+# npx wrangler secret put APIFY_TOKEN
