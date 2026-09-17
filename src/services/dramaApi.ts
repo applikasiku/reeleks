@@ -1,4 +1,5 @@
 import { dramas as fallbackDramas } from '../data/mock'
+import { getPublicHomeCatalog, publicProviderStatuses, searchPublicCatalog } from './publicCatalog'
 import type { CatalogSection, Drama, Episode, ProviderStatus } from '../types'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
@@ -28,12 +29,31 @@ async function requestJson<T>(path: string): Promise<T> {
   return body as T
 }
 
+function dedupeDramas(items: Drama[]) {
+  const seen = new Set<string>()
+  return items.filter(drama => {
+    const key = drama.title.toLowerCase().replace(/[^a-z0-9]+/g, '')
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 export async function getHomeCatalog(): Promise<HomeCatalog> {
   if (!API_BASE) {
-    return {
-      dramas: fallbackDramas,
-      sections: [],
-      providers: []
+    try {
+      const publicCatalog = await getPublicHomeCatalog()
+      return {
+        dramas: dedupeDramas([...fallbackDramas, ...publicCatalog.dramas]),
+        sections: publicCatalog.sections,
+        providers: publicCatalog.providers
+      }
+    } catch {
+      return {
+        dramas: fallbackDramas,
+        sections: [],
+        providers: publicProviderStatuses
+      }
     }
   }
 
@@ -53,10 +73,19 @@ export async function getHomeCatalog(): Promise<HomeCatalog> {
       providers: result.providers || []
     }
   } catch {
-    return {
-      dramas: fallbackDramas,
-      sections: [],
-      providers: []
+    try {
+      const publicCatalog = await getPublicHomeCatalog()
+      return {
+        dramas: dedupeDramas([...fallbackDramas, ...publicCatalog.dramas]),
+        sections: publicCatalog.sections,
+        providers: publicCatalog.providers
+      }
+    } catch {
+      return {
+        dramas: fallbackDramas,
+        sections: [],
+        providers: publicProviderStatuses
+      }
     }
   }
 }
@@ -66,12 +95,12 @@ export async function getHomeDramas(): Promise<Drama[]> {
 }
 
 export async function getProviderStatuses(): Promise<ProviderStatus[]> {
-  if (!API_BASE) return []
+  if (!API_BASE) return publicProviderStatuses
   try {
     const result = await requestJson<{ providers?: ProviderStatus[] }>('/api/providers')
-    return result.providers || []
+    return result.providers || publicProviderStatuses
   } catch {
-    return []
+    return publicProviderStatuses
   }
 }
 
@@ -79,19 +108,32 @@ export async function searchDramas(query: string): Promise<Drama[]> {
   const q = query.trim()
   if (!q) return getHomeDramas()
 
+  const keyword = q.toLowerCase()
+  const local = fallbackDramas.filter(drama =>
+    drama.title.toLowerCase().includes(keyword) ||
+    drama.genres.some(genre => genre.toLowerCase().includes(keyword))
+  )
+
   if (!API_BASE) {
-    const keyword = q.toLowerCase()
-    return fallbackDramas.filter(drama =>
-      drama.title.toLowerCase().includes(keyword) ||
-      drama.genres.some(genre => genre.toLowerCase().includes(keyword))
-    )
+    try {
+      const publicResults = await searchPublicCatalog(q)
+      return dedupeDramas([...local, ...publicResults])
+    } catch {
+      return local
+    }
   }
 
   try {
     const result = await requestJson<{ dramas?: Drama[] } | Drama[]>(`/api/search?q=${encodeURIComponent(q)}`)
-    return Array.isArray(result) ? result : result.dramas || []
+    const remote = Array.isArray(result) ? result : result.dramas || []
+    return dedupeDramas([...remote, ...local])
   } catch {
-    return []
+    try {
+      const publicResults = await searchPublicCatalog(q)
+      return dedupeDramas([...local, ...publicResults])
+    } catch {
+      return local
+    }
   }
 }
 
