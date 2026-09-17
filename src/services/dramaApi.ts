@@ -1,8 +1,14 @@
 import { dramas as fallbackDramas } from '../data/mock'
-import type { Drama, Episode } from '../types'
+import type { CatalogSection, Drama, Episode, ProviderStatus } from '../types'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 const playbackCache = new Map<string, { url: string; expiresAt: number }>()
+
+export type HomeCatalog = {
+  dramas: Drama[]
+  sections: CatalogSection[]
+  providers: ProviderStatus[]
+}
 
 async function requestJson<T>(path: string): Promise<T> {
   if (!API_BASE) throw new Error('API base URL is not configured')
@@ -13,22 +19,59 @@ async function requestJson<T>(path: string): Promise<T> {
     }
   })
 
+  const body = await response.json().catch(() => ({}))
   if (!response.ok) {
-    throw new Error(`REELEKS API ${response.status}`)
+    const message = (body as { message?: string }).message
+    throw new Error(message || `REELEKS API ${response.status}`)
   }
 
-  return response.json() as Promise<T>
+  return body as T
+}
+
+export async function getHomeCatalog(): Promise<HomeCatalog> {
+  if (!API_BASE) {
+    return {
+      dramas: fallbackDramas,
+      sections: [],
+      providers: []
+    }
+  }
+
+  try {
+    const result = await requestJson<Partial<HomeCatalog> | Drama[]>('/api/home')
+    if (Array.isArray(result)) {
+      return {
+        dramas: result.length ? result : fallbackDramas,
+        sections: [],
+        providers: []
+      }
+    }
+
+    return {
+      dramas: result.dramas?.length ? result.dramas : fallbackDramas,
+      sections: result.sections || [],
+      providers: result.providers || []
+    }
+  } catch {
+    return {
+      dramas: fallbackDramas,
+      sections: [],
+      providers: []
+    }
+  }
 }
 
 export async function getHomeDramas(): Promise<Drama[]> {
-  if (!API_BASE) return fallbackDramas
+  return (await getHomeCatalog()).dramas
+}
 
+export async function getProviderStatuses(): Promise<ProviderStatus[]> {
+  if (!API_BASE) return []
   try {
-    const result = await requestJson<{ dramas?: Drama[] } | Drama[]>('/api/home')
-    const dramas = Array.isArray(result) ? result : result.dramas
-    return dramas?.length ? dramas : fallbackDramas
+    const result = await requestJson<{ providers?: ProviderStatus[] }>('/api/providers')
+    return result.providers || []
   } catch {
-    return fallbackDramas
+    return []
   }
 }
 
@@ -63,6 +106,7 @@ export async function getDramaById(id: string): Promise<Drama | null> {
 }
 
 export async function getPlaybackUrl(episode: Episode): Promise<string> {
+  if (episode.playable === false) return ''
   if (!API_BASE) return episode.hlsUrl
 
   const now = Math.floor(Date.now() / 1000)
@@ -75,7 +119,7 @@ export async function getPlaybackUrl(episode: Episode): Promise<string> {
     )
     const url = response.playbackUrl || episode.hlsUrl
     const expiresAt = response.expiresAt || now + 180
-    playbackCache.set(episode.id, { url, expiresAt })
+    if (url) playbackCache.set(episode.id, { url, expiresAt })
     return url
   } catch {
     return episode.hlsUrl
@@ -83,10 +127,9 @@ export async function getPlaybackUrl(episode: Episode): Promise<string> {
 }
 
 export async function preloadPlayback(episode: Episode): Promise<string> {
+  if (episode.playable === false) return ''
   const url = await getPlaybackUrl(episode)
 
-  // Fetch only the small HLS manifest ahead of time. If the CDN does not allow
-  // CORS prefetching, playback still works normally because this is best-effort.
   if (/^https?:\/\//i.test(url)) {
     void fetch(url, {
       method: 'GET',
