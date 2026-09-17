@@ -9,6 +9,9 @@ type Props = {
   episodeId: string
   protectedContent?: boolean
   watermark?: string
+  autoPlay?: boolean
+  muted?: boolean
+  showControls?: boolean
 }
 
 export default function SecureHlsPlayer({
@@ -17,7 +20,10 @@ export default function SecureHlsPlayer({
   dramaId,
   episodeId,
   protectedContent = true,
-  watermark = 'REELEKS'
+  watermark = 'REELEKS',
+  autoPlay = true,
+  muted = false,
+  showControls = true
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
 
@@ -32,17 +38,19 @@ export default function SecureHlsPlayer({
     } else if (Hls.isSupported()) {
       hls = new Hls({
         lowLatencyMode: true,
-        maxBufferLength: 12,
-        backBufferLength: 10,
+        maxBufferLength: 10,
+        maxMaxBufferLength: 18,
+        backBufferLength: 6,
         capLevelToPlayerSize: true,
-        startLevel: -1
+        startLevel: -1,
+        enableWorker: true
       })
       hls.loadSource(src)
       hls.attachMedia(video)
     }
 
     const onTime = () => {
-      if (!video.duration) return
+      if (!video.duration || Number.isNaN(video.duration)) return
       saveHistory({
         dramaId,
         episodeId,
@@ -55,8 +63,21 @@ export default function SecureHlsPlayer({
     return () => {
       video.removeEventListener('timeupdate', onTime)
       hls?.destroy()
+      video.removeAttribute('src')
+      video.load()
     }
   }, [src, dramaId, episodeId])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    video.muted = muted
+    if (autoPlay) {
+      void video.play().catch(() => undefined)
+    } else {
+      video.pause()
+    }
+  }, [autoPlay, muted])
 
   const blockContext = (event: React.MouseEvent) => {
     if (protectedContent) event.preventDefault()
@@ -68,16 +89,15 @@ export default function SecureHlsPlayer({
         ref={videoRef}
         className="video"
         poster={poster}
-        controls
-        autoPlay
+        controls={showControls}
         playsInline
-        preload="metadata"
+        preload={autoPlay ? 'auto' : 'metadata'}
         controlsList="nodownload noremoteplayback"
         disablePictureInPicture={protectedContent}
       />
       {protectedContent && (
         <>
-          <div className="security-badge">🔒 Cuplikan dilindungi</div>
+          <div className="security-badge">🔒 Dilindungi</div>
           <div className="dynamic-watermark">
             {watermark} • {new Date().toLocaleDateString('id-ID')}
           </div>
