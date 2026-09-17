@@ -1,11 +1,14 @@
-import { useMemo, useState } from 'react'
-import { Bell, Flame, Play, Search, Sparkles } from 'lucide-react'
-import type { Drama } from '../types'
+import { useEffect, useMemo, useState } from 'react'
+import { Bell, Database, Flame, Play, Search, Sparkles } from 'lucide-react'
+import { hasRemoteApi, searchDramas } from '../services/dramaApi'
+import type { CatalogSection, Drama, ProviderStatus } from '../types'
 
 const categoryTabs = [
   'Untukmu',
   'Populer',
   'Baru',
+  'Drama China',
+  'Anime',
   'Romantis',
   'CEO',
   'Wuxia',
@@ -45,31 +48,95 @@ function rotateItems(dramas: Drama[], offset: number, count = 6) {
   return Array.from({ length: Math.max(count, dramas.length) }, (_, index) => dramas[(index + offset) % dramas.length])
 }
 
+function providerLabel(drama: Drama) {
+  return drama.providerLabel || drama.source?.toUpperCase() || 'REELEKS'
+}
+
+function episodeCount(drama: Drama) {
+  return drama.episodeCount || drama.episodes.length
+}
+
+function categoryMatches(drama: Drama, category: string) {
+  const haystack = `${drama.title} ${drama.genres.join(' ')}`.toLowerCase()
+  if (category === 'Untukmu' || category === 'Populer') return true
+  if (category === 'Baru') return true
+  if (category === 'Drama China') return drama.source === 'primary'
+  if (category === 'Anime') return drama.source === 'anilist' || drama.source === 'jikan' || haystack.includes('anime')
+  return haystack.includes(category.toLowerCase())
+}
+
 export default function HomePage({
   dramas,
+  sections = [],
+  providers = [],
   onOpen,
   onPlay
 }: {
   dramas: Drama[]
+  sections?: CatalogSection[]
+  providers?: ProviderStatus[]
   onOpen: (drama: Drama) => void
   onPlay: (drama: Drama) => void
 }) {
   const [category, setCategory] = useState('Untukmu')
   const [query, setQuery] = useState('')
+  const [remoteResults, setRemoteResults] = useState<Drama[]>([])
+  const [searching, setSearching] = useState(false)
 
-  const filtered = useMemo(() => {
+  const categoryItems = useMemo(() => {
+    const filtered = dramas.filter(drama => categoryMatches(drama, category))
+    if (category === 'Baru') {
+      return [...filtered].sort((a, b) => Number(b.year || 0) - Number(a.year || 0))
+    }
+    if (category === 'Populer') {
+      return [...filtered].sort((a, b) => b.rating - a.rating)
+    }
+    return filtered.length ? filtered : dramas
+  }, [dramas, category])
+
+  const localSearch = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return dramas
+    if (!q) return categoryItems
     return dramas.filter(drama =>
       drama.title.toLowerCase().includes(q) ||
-      drama.genres.some(genre => genre.toLowerCase().includes(q))
+      drama.genres.some(genre => genre.toLowerCase().includes(q)) ||
+      providerLabel(drama).toLowerCase().includes(q)
     )
-  }, [dramas, query])
+  }, [dramas, query, categoryItems])
 
-  const heroItems = useMemo(() => rotateItems(dramas, 0, 5), [dramas])
+  useEffect(() => {
+    const value = query.trim()
+    if (!value || !hasRemoteApi()) {
+      setRemoteResults([])
+      setSearching(false)
+      return
+    }
+
+    setSearching(true)
+    const timer = window.setTimeout(() => {
+      void searchDramas(value).then(results => {
+        setRemoteResults(results)
+        setSearching(false)
+      }).catch(() => {
+        setRemoteResults([])
+        setSearching(false)
+      })
+    }, 350)
+
+    return () => window.clearTimeout(timer)
+  }, [query])
+
+  const searchResults = query.trim() ? (remoteResults.length ? remoteResults : localSearch) : categoryItems
+  const heroItems = useMemo(() => rotateItems(categoryItems, 0, 7), [categoryItems])
+  const enabledProviders = providers.filter(provider => provider.enabled)
+
+  const handlePlayOrDetail = (drama: Drama) => {
+    if (drama.playable === false) onOpen(drama)
+    else onPlay(drama)
+  }
 
   return (
-    <main className="page home-page home-v21">
+    <main className="page home-page home-v21 home-v26">
       <header className="topbar home-v21-topbar">
         <button className="brand-button" aria-label="REELEKS">
           <span className="brand"><span className="brand-r">R</span>EELEKS</span>
@@ -82,11 +149,22 @@ export default function HomePage({
         <input
           value={query}
           onChange={event => setQuery(event.target.value)}
-          placeholder="Cari judul, genre, atau episode..."
+          placeholder="Cari drama China, TV, anime, genre..."
           aria-label="Cari drama"
         />
-        {query && <span className="search-count">{filtered.length}</span>}
+        {query && <span className="search-count">{searching ? '...' : searchResults.length}</span>}
       </div>
+
+      {enabledProviders.length > 0 && (
+        <div className="provider-strip" aria-label="Sumber katalog aktif">
+          <span className="provider-strip-label"><Database size={13} /> Multi API</span>
+          {enabledProviders.map(provider => (
+            <span key={provider.id} className={`provider-chip provider-${provider.kind}`}>
+              <i /> {provider.label}
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="home-v21-tabs" role="tablist" aria-label="Kategori drama">
         {categoryTabs.map(item => (
@@ -104,19 +182,19 @@ export default function HomePage({
         <section className="home-search-results">
           <div className="section-title">
             <div>
-              <span className="section-kicker">HASIL PENCARIAN</span>
-              <h2>{filtered.length} drama ditemukan</h2>
+              <span className="section-kicker">PENCARIAN MULTI-PROVIDER</span>
+              <h2>{searching ? 'Mencari di semua sumber...' : `${searchResults.length} judul ditemukan`}</h2>
             </div>
           </div>
           <div className="home-grid3">
-            {filtered.map((drama, index) => (
+            {searchResults.map((drama, index) => (
               <button className="home-mini-card" key={`${drama.id}-${index}`} onClick={() => onOpen(drama)}>
                 <div className="home-mini-poster">
                   <img src={drama.poster} alt={drama.title} loading="lazy" />
-                  <span>SUB ID</span>
+                  <span>{drama.playable === false ? 'INFO' : 'PLAY'}</span>
                 </div>
                 <strong>{drama.title}</strong>
-                <small>⭐ {drama.rating}</small>
+                <small>{providerLabel(drama)} · ⭐ {drama.rating || '—'}</small>
               </button>
             ))}
           </div>
@@ -138,12 +216,15 @@ export default function HomePage({
                   <img src={drama.poster || drama.cover} alt={drama.title} loading={index === 0 ? 'eager' : 'lazy'} />
                   <div className="home-hero-shade" />
                   <span className="home-hero-rank"><Flame size={12} fill="currentColor" /> #{index + 1}</span>
+                  <span className="home-source-badge">{providerLabel(drama)}</span>
                   <div className="home-hero-copy">
                     <h2>{drama.title}</h2>
                     <p>{drama.genres.slice(0, 2).join(' • ')}</p>
                     <div>
-                      <button className="home-play" onClick={() => onPlay(drama)}><Play size={14} fill="currentColor" /> Tonton</button>
-                      <button className="home-detail" onClick={() => onOpen(drama)}>Detail</button>
+                      <button className="home-play" onClick={() => handlePlayOrDetail(drama)}>
+                        <Play size={14} fill="currentColor" /> {drama.playable === false ? 'Detail' : 'Tonton'}
+                      </button>
+                      <button className="home-detail" onClick={() => onOpen(drama)}>Info</button>
                     </div>
                   </div>
                 </article>
@@ -151,8 +232,32 @@ export default function HomePage({
             </div>
           </section>
 
+          {sections.map(section => (
+            <section className="home-discovery provider-section" key={`provider-${section.id}`}>
+              <div className="section-title compact-title">
+                <div>
+                  <span className="section-kicker">{section.provider.toUpperCase()}</span>
+                  <h2>{section.title}</h2>
+                </div>
+                <span className="provider-section-count">{section.dramas.length}</span>
+              </div>
+              <div className="home-carousel">
+                {section.dramas.map((drama, index) => (
+                  <button className="home-carousel-card" key={`${section.id}-${drama.id}-${index}`} onClick={() => onOpen(drama)}>
+                    <div className="provider-poster-wrap">
+                      <img src={drama.poster} alt={drama.title} loading="lazy" />
+                      <span>{providerLabel(drama)}</span>
+                    </div>
+                    <strong>{drama.title}</strong>
+                    <small>{episodeCount(drama)} Episode · ⭐ {drama.rating || '—'}</small>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ))}
+
           {discoverySections.map((section, sectionIndex) => {
-            const items = rotateItems(dramas, sectionIndex, section.layout === 'grid3' ? 6 : 7)
+            const items = rotateItems(categoryItems, sectionIndex, section.layout === 'grid3' ? 6 : 7)
 
             return (
               <section className="home-discovery" key={section.title}>
@@ -170,10 +275,10 @@ export default function HomePage({
                       <button className="home-mini-card" key={`${section.title}-${drama.id}-${index}`} onClick={() => onOpen(drama)}>
                         <div className="home-mini-poster">
                           <img src={drama.poster} alt={drama.title} loading="lazy" />
-                          <span>{index < 3 ? 'HOT' : 'SUB ID'}</span>
+                          <span>{drama.playable === false ? providerLabel(drama) : index < 3 ? 'HOT' : 'PLAY'}</span>
                         </div>
                         <strong>{drama.title}</strong>
-                        <small>{drama.views} · ⭐ {drama.rating}</small>
+                        <small>{drama.views} · ⭐ {drama.rating || '—'}</small>
                       </button>
                     ))}
                   </div>
@@ -185,7 +290,7 @@ export default function HomePage({
                       <button className="home-carousel-card" key={`${section.title}-${drama.id}-${index}`} onClick={() => onOpen(drama)}>
                         <img src={drama.poster} alt={drama.title} loading="lazy" />
                         <strong>{drama.title}</strong>
-                        <small>{drama.episodes.length} Episode</small>
+                        <small>{episodeCount(drama)} Episode · {providerLabel(drama)}</small>
                       </button>
                     ))}
                   </div>
@@ -200,7 +305,7 @@ export default function HomePage({
                         <div>
                           <strong>{drama.title}</strong>
                           <span>{drama.genres.slice(0, 2).join(' • ')}</span>
-                          <small>{drama.views} · ⭐ {drama.rating}</small>
+                          <small>{providerLabel(drama)} · {drama.views} · ⭐ {drama.rating || '—'}</small>
                         </div>
                         <Play size={18} />
                       </button>
@@ -214,12 +319,12 @@ export default function HomePage({
                       <button
                         className="home-wide-card"
                         key={`${section.title}-${drama.id}-${index}`}
-                        onClick={() => onPlay(drama)}
+                        onClick={() => handlePlayOrDetail(drama)}
                         style={{ backgroundImage: `linear-gradient(0deg, rgba(0,0,0,.88), rgba(0,0,0,.12)), url(${drama.cover})` }}
                       >
-                        <span>{drama.genres[0]}</span>
+                        <span>{providerLabel(drama)}</span>
                         <strong>{drama.title}</strong>
-                        <small>{drama.views} penonton</small>
+                        <small>{drama.playable === false ? 'Metadata / Info' : `${drama.views} penonton`}</small>
                       </button>
                     ))}
                   </div>
