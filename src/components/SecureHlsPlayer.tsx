@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Hls from 'hls.js'
 import { saveHistory } from '../lib/storage'
 
@@ -12,6 +12,9 @@ type Props = {
   autoPlay?: boolean
   muted?: boolean
   showControls?: boolean
+  showProgress?: boolean
+  loop?: boolean
+  shouldLoad?: boolean
 }
 
 export default function SecureHlsPlayer({
@@ -23,13 +26,19 @@ export default function SecureHlsPlayer({
   watermark = 'REELEKS',
   autoPlay = true,
   muted = false,
-  showControls = true
+  showControls = true,
+  showProgress = false,
+  loop = false,
+  shouldLoad = true
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const [progress, setProgress] = useState(0)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [buffering, setBuffering] = useState(false)
 
   useEffect(() => {
     const video = videoRef.current
-    if (!video) return
+    if (!video || !shouldLoad) return
 
     let hls: Hls | null = null
 
@@ -38,63 +47,117 @@ export default function SecureHlsPlayer({
     } else if (Hls.isSupported()) {
       hls = new Hls({
         lowLatencyMode: true,
-        maxBufferLength: 10,
-        maxMaxBufferLength: 18,
-        backBufferLength: 6,
-        capLevelToPlayerSize: true,
+        enableWorker: true,
         startLevel: -1,
-        enableWorker: true
+        capLevelToPlayerSize: true,
+        maxBufferLength: 8,
+        maxMaxBufferLength: 14,
+        backBufferLength: 5,
+        fragLoadingMaxRetry: 4,
+        manifestLoadingMaxRetry: 3,
+        levelLoadingMaxRetry: 3
       })
+
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (!data.fatal) return
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          hls?.startLoad()
+          return
+        }
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          hls?.recoverMediaError()
+          return
+        }
+        hls?.destroy()
+      })
+
       hls.loadSource(src)
       hls.attachMedia(video)
     }
 
     const onTime = () => {
       if (!video.duration || Number.isNaN(video.duration)) return
+      const nextProgress = Math.min(1, video.currentTime / video.duration)
+      setProgress(nextProgress)
       saveHistory({
         dramaId,
         episodeId,
-        progress: Math.min(1, video.currentTime / video.duration),
+        progress: nextProgress,
         updatedAt: Date.now()
       })
     }
 
+    const onPlay = () => {
+      setIsPlaying(true)
+      setBuffering(false)
+    }
+    const onPause = () => setIsPlaying(false)
+    const onWaiting = () => setBuffering(true)
+    const onPlaying = () => setBuffering(false)
+
     video.addEventListener('timeupdate', onTime)
+    video.addEventListener('play', onPlay)
+    video.addEventListener('pause', onPause)
+    video.addEventListener('waiting', onWaiting)
+    video.addEventListener('playing', onPlaying)
+
     return () => {
       video.removeEventListener('timeupdate', onTime)
+      video.removeEventListener('play', onPlay)
+      video.removeEventListener('pause', onPause)
+      video.removeEventListener('waiting', onWaiting)
+      video.removeEventListener('playing', onPlaying)
       hls?.destroy()
+      video.pause()
       video.removeAttribute('src')
       video.load()
     }
-  }, [src, dramaId, episodeId])
+  }, [src, dramaId, episodeId, shouldLoad])
 
   useEffect(() => {
     const video = videoRef.current
-    if (!video) return
+    if (!video || !shouldLoad) return
+
     video.muted = muted
+    video.loop = loop
+
     if (autoPlay) {
       void video.play().catch(() => undefined)
     } else {
       video.pause()
     }
-  }, [autoPlay, muted])
+  }, [autoPlay, muted, loop, shouldLoad])
 
   const blockContext = (event: React.MouseEvent) => {
     if (protectedContent) event.preventDefault()
   }
 
   return (
-    <div className="secure-player" onContextMenu={blockContext}>
+    <div
+      className="secure-player"
+      onContextMenu={blockContext}
+      data-player-state={isPlaying ? 'playing' : 'paused'}
+    >
       <video
         ref={videoRef}
         className="video"
         poster={poster}
         controls={showControls}
         playsInline
-        preload={autoPlay ? 'auto' : 'metadata'}
-        controlsList="nodownload noremoteplayback"
+        preload={shouldLoad ? (autoPlay ? 'auto' : 'metadata') : 'none'}
+        controlsList="nodownload noremoteplayback nofullscreen"
         disablePictureInPicture={protectedContent}
+        draggable={false}
       />
+
+      {buffering && <div className="player-buffering" aria-label="Memuat video"><span /></div>}
+
+      {showProgress && (
+        <div className="video-progress" aria-hidden="true">
+          <span style={{ width: `${progress * 100}%` }} />
+        </div>
+      )}
+
       {protectedContent && (
         <>
           <div className="security-badge">🔒 Dilindungi</div>
