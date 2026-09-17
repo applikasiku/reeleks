@@ -2,11 +2,9 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-const base = '/reeleks/'
+const base = process.env.VITE_BASE_PATH || '/reeleks/'
 
 export default defineConfig({
-  // GitHub Pages project sites are served from /<repository>/.
-  // Without this, Vite points JS/CSS to the domain root and the app renders blank.
   base,
   plugins: [
     react(),
